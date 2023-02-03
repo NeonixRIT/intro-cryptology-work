@@ -62,11 +62,11 @@ def main():
     c7 = HillCipher(plain_text='help'.upper(), cipher_text='xfib'.upper())
     time_cipher(c7, True, 2)
 
-    c8 = BBSCipher(plain_text='KALILINUX', seed=('101000', 307 * 491))
+    c8 = BBSCipher(plain_text='SOMETHING', seed=('101010', 49 ** 13))
     time_cipher(c8, False)
 
     # Key/Nonce is generated to be psuedorandom bits of set length
-    c9 = TriviumCipher(plain_text='string w/ spaces')
+    c9 = TriviumCipher(plain_text='s p a c e s')
     time_cipher(c9, False)
 
     # Seed is generated to be a psuedorandom length with psuedorandom bits

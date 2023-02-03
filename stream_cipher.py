@@ -26,7 +26,7 @@ class StreamCipher:
     def encrypt(self):
         if self.plain_text is None:
             return
-        binary = ''.join([bin(ord(char))[2:].zfill(7) for char in self.plain_text])
+        binary = ''.join([bin(ord(char))[2:].zfill(8) for char in self.plain_text])
         length = len(binary) + 1
         ksg = self.__stream_gen(length)
         self.cipher_text = symmetric_alg(binary, ksg)
@@ -39,7 +39,7 @@ class StreamCipher:
         ksg = self.__stream_gen(length)
 
         binery = symmetric_alg(self.cipher_text, ksg)
-        bin_letters = chunk_string(binery, 7)
+        bin_letters = chunk_string(binery, 8)
 
         res = ''
         for bin_letter in bin_letters:

@@ -1,8 +1,10 @@
-import numpy as np
+from os import urandom
+from sys import byteorder
 
+from key import Key
 from stream_cipher import StreamCipher, StreamGenerator
 
-from utils import shift_right
+from utils import shift_right, string_to_bits
 
 
 def trivium_cycle(block_1: list[int], block_2: list[int], block_3: list[int]) -> None:
@@ -30,12 +32,34 @@ def trivium_cycle(block_1: list[int], block_2: list[int], block_3: list[int]) ->
     return block_1, block_2, block_3, zi
 
 
-def trivium_ksg(key, nonce, length=1000):
-    if len(key) != 80 or len(nonce) != 80:
+class TriviumKey(Key):
+    def __init__(self, seed: str | list = None, nonce: str | list = None, is_string: bool = False, is_binary: bool = False):
+        self.is_string = is_string
+        self.is_binary = is_binary
+
+        friendly_name = None
+        seed = [int(bit) for bit in bin(int.from_bytes(urandom(80 // 8), byteorder=byteorder))[2:].zfill(80)] if seed is None else seed
+        nonce = [int(bit) for bit in bin(int.from_bytes(urandom(80 // 8), byteorder=byteorder))[2:].zfill(80)] if nonce is None else nonce
+        if is_string:
+            friendly_name = f'{seed} {nonce}'
+            seed = string_to_bits(seed)
+        elif is_binary:
+            tmp_key_val = ''.join([str(bit) for bit in seed])
+            tmp_nonce_val = ''.join([str(bit) for bit in nonce])
+            friendly_name = f'{hex(int(tmp_key_val, 2))[2:]} {hex(int(tmp_nonce_val, 2))[2:]}'
+
+        self.seed = seed
+        self.nonce = nonce
+
+        super().__init__(seed, friendly_name)
+
+
+def trivium_ksg(key: TriviumKey, length=1000):
+    if len(key.seed) != 80 or len(key.nonce) != 80:
         raise ValueError("The key and nonce must be 80 bits long.")
     length += (4 * 288)  # add warmup
-    block_1 = [int(key[i]) if i < len(key) else 0 for i in range(93)]
-    block_2 = [int(nonce[i]) if i < len(nonce) else 0 for i in range(84)]
+    block_1 = [int(key.seed[i]) if i < len(key.seed) else 0 for i in range(93)]
+    block_2 = [int(key.nonce[i]) if i < len(key.nonce) else 0 for i in range(84)]
     block_3 = [1 if i > 107 else 0 for i in range(111)]
     for i in range(length):
         block_1, block_2, block_3, zi = trivium_cycle(block_1, block_2, block_3)
@@ -44,16 +68,14 @@ def trivium_ksg(key, nonce, length=1000):
 
 
 class TriviumKSG(StreamGenerator):
-    def __init__(self, seed, nonce):
-        self.nonce = nonce
-        super().__init__(seed)
+    def __init__(self, key: TriviumKey):
+        super().__init__(key)
 
     def __call__(self, length):
-        return trivium_ksg(self.seed, self.nonce, length)
+        return trivium_ksg(self.key, length)
 
 
 class TriviumCipher(StreamCipher):
-    def __init__(self, plain_text: str = None, cipher_text: str = None, seed: str | list = None, nonce: str | list = None):
-        seed = [np.random.randint(i, (i + 1) ** 3) % 2 for i in range(80)] if seed is None else seed
-        nonce = [np.random.randint(i, (i + 1) ** 3) % 2 for i in range(80)] if seed is None else seed
-        super().__init__(plain_text, cipher_text, TriviumKSG(seed, nonce))
+    def __init__(self, plain_text: str = None, cipher_text: str = None, key: TriviumKey = None):
+        key = TriviumKey(is_binary=True) if key is None else key
+        super().__init__(plain_text, cipher_text, TriviumKSG(key))

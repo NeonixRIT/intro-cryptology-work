@@ -57,6 +57,14 @@ def shift_right(items: str | list, shift: int) -> str | list:
     return items[-shift:] + items[:-shift]
 
 
+def string_to_bits(s: str):
+    return [int(bit) for bit in ''.join([bin(ord(c))[2:].zfill(8) for c in s])]
+
+
+def string_to_bytes(s: str):
+    return [int(byte, 2) for byte in [bin(ord(c))[2:].zfill(8) for c in s]]
+
+
 def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, verbos: bool = False) -> list:
     if len(init_state) < degree:
         raise ValueError("The initial state must be at least as long as the degree of the LSFR.")

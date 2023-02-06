@@ -1,3 +1,6 @@
+from key import Key
+from stream_cipher import StreamCipher
+
 from shift_cipher import ShiftCipher
 from substitution_cipher import SubCipher
 from permutation_cipher import PermCipher
@@ -5,9 +8,11 @@ from transpose_cipher import TransCipher
 from affine_cipher import AffineCipher
 from hill_cipher import HillCipher
 
-from bbs_cipher import BBSCipher
-from trivium_cipher import TriviumCipher
-from rc4_cipher import RC4
+from bbs_cipher import BBSCipher, BBSKey
+from trivium_cipher import TriviumCipher, TriviumKey
+from rc4_cipher import RC4, RC4Key
+
+from utils import string_to_bytes
 
 from time import perf_counter
 
@@ -17,13 +22,25 @@ ALPHA_TO_INDEX = {chr(ascii_num): index for index, ascii_num in enumerate(range(
 
 def time_cipher(cipher, get_key, *get_key_args):
     name = type(cipher).__name__
+
     start = perf_counter()
-    if get_key and get_key_args is not None:
-        print(f'{name} Key:'.ljust(25), cipher.get_key(*get_key_args))
-    else:
-        print(f'{name} Cipher:'.ljust(25), cipher.encrypt())
-        print(f'{name} Plain:'.ljust(25), cipher.decrypt())
+    key = cipher.get_key(*get_key_args) if get_key else cipher.key
+    cipher_text = cipher.encrypt()
+    plain_text = cipher.decrypt()
     stop = perf_counter()
+
+    try:
+        cipher_text = hex(int(cipher_text, 2))[2:]
+    except (TypeError, ValueError):
+        pass
+
+    if len(str(key)) > 32:
+        key = str(key)[:32] + '...'
+
+    print(f'{name} Key:'.ljust(25), key)
+    if not get_key:
+        print(f'{name} Cipher:'.ljust(25), cipher_text)
+        print(f'{name} Plain:'.ljust(25), plain_text)
     print(f'Execution time: {round(stop - start, 4)} seconds')
     print()
 
@@ -62,7 +79,7 @@ def main():
     c7 = HillCipher(plain_text='help'.upper(), cipher_text='xfib'.upper())
     time_cipher(c7, True, 2)
 
-    c8 = BBSCipher(plain_text='SOMETHING', seed=('101010', 49 ** 13))
+    c8 = BBSCipher(plain_text='SOMETHING', key=BBSKey(49 ** 13, '101010'))
     time_cipher(c8, False)
 
     # Key/Nonce is generated to be psuedorandom bits of set length
@@ -72,6 +89,10 @@ def main():
     # Seed is generated to be a psuedorandom length with psuedorandom bits
     c10 = RC4(plain_text='other string')
     time_cipher(c10, False)
+
+    # Test RC4 with wikipedia example
+    c11 = RC4(plain_text='pedia', key=RC4Key('Wiki', is_string=True))
+    time_cipher(c11, False)
 
 
 if __name__ == '__main__':

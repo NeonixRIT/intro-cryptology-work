@@ -2,8 +2,8 @@ from utils import chunk_string
 
 
 class StreamGenerator:
-    def __init__(self, seed):
-        self.seed = seed
+    def __init__(self, key):
+        self.key = key
 
     def __call__(self, length):
         raise NotImplementedError()
@@ -21,6 +21,7 @@ class StreamCipher:
     def __init__(self, plain_text, cipher_text, stream_gen: StreamGenerator):
         self.plain_text = plain_text
         self.cipher_text = cipher_text
+        self.key = stream_gen.key
         self.__stream_gen = stream_gen
 
     def encrypt(self):
@@ -32,14 +33,14 @@ class StreamCipher:
         self.cipher_text = symmetric_alg(binary, ksg)
         return self.cipher_text
 
-    def decrypt(self):
+    def decrypt(self, base: int = 8):
         if self.cipher_text is None:
             return
         length = len(self.cipher_text) + 1
         ksg = self.__stream_gen(length)
 
         binery = symmetric_alg(self.cipher_text, ksg)
-        bin_letters = chunk_string(binery, 8)
+        bin_letters = chunk_string(binery, base)
 
         res = ''
         for bin_letter in bin_letters:

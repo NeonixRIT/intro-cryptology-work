@@ -57,9 +57,10 @@ def shift_right(items: str | list, shift: int) -> str | list:
     return items[-shift:] + items[:-shift]
 
 
-def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000) -> list:
+def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, verbos: bool = False) -> list:
     if len(init_state) < degree:
         raise ValueError("The initial state must be at least as long as the degree of the LSFR.")
+    gates = [-1 - i for i in gates]
     blocks = [int(init_state[i]) for i in range(degree)]
     for _ in range(length):
         if gates:
@@ -69,4 +70,6 @@ def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000) -> 
         blocks = shift_right(blocks, 1)
         out = blocks[-1]
         del blocks[-1]
+        if verbos:
+            print(blocks)
         yield out

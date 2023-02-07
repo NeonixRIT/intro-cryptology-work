@@ -5,7 +5,7 @@ from sys import byteorder
 
 from key import Key
 from stream_cipher import StreamCipher, StreamGenerator
-from utils import string_to_bytes
+from utils import string_to_ints
 
 
 class RC4Key(Key):
@@ -20,7 +20,7 @@ class RC4Key(Key):
 
         if is_string:
             friendly_name = seed
-            seed = string_to_bytes(seed)
+            seed = string_to_ints(seed)
         elif is_binary:
             tmp_key_val = ' '.join([hex(byte) for byte in seed])
             friendly_name = tmp_key_val

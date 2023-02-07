@@ -12,7 +12,7 @@ from bbs_cipher import BBSCipher, BBSKey
 from trivium_cipher import TriviumCipher, TriviumKey
 from rc4_cipher import RC4, RC4Key
 
-from utils import string_to_bytes
+from utils import feistel_system, example_f, example_ksa
 
 from time import perf_counter
 
@@ -93,6 +93,8 @@ def main():
     # Test RC4 with wikipedia example
     c11 = RC4(plain_text='pedia', key=RC4Key('Wiki', is_string=True))
     time_cipher(c11, False)
+
+    print(feistel_system('10010001', example_f, example_ksa('1010', 2 + 1), 4, 2, is_bits=True))
 
 
 if __name__ == '__main__':

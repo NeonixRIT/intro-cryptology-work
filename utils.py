@@ -1,4 +1,5 @@
 from sys import byteorder
+from functools import cache
 
 LIGHT_GREEN = '\033[1;32m'
 LIGHT_RED = '\033[1;31m'
@@ -59,6 +60,12 @@ def shift_right(items: str | list, shift: int) -> str | list:
     return items[-shift:] + items[:-shift]
 
 
+def shift_left(items: str | list, shift: int) -> str | list:
+    if shift % len(items) == 0:
+        return items
+    return items[shift:] + items[:shift]
+
+
 def string_to_bits(s: str, char_size: int = 8):
     return [int(bit) for bit in ''.join([bin(ord(c))[2:].zfill(char_size) for c in s])]
 
@@ -82,6 +89,7 @@ def bytes_to_ints(b: list[bytes]):
     return [int.from_bytes(byte, byteorder=byteorder) for byte in b]
 
 
+@cache
 def xor_bits(a: str, b: str) -> str:
     return ''.join([str(int(a[i]) ^ int(b[i])) for i in range(len(a))])
 
@@ -112,21 +120,6 @@ def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, ver
         yield out
 
 
-def feistel_system_round(l_half: str, r_half: str, f, key) -> str:
-    # Take text, split in half.
-    # if not even size, padd smalled half with nullbyte
-    # Apply f to the right half, XOR with the left half.
-    # Right becomes left, xor result becomes right.
-    # Repeat for round number of rounds
-    l_half, r_half = r_half, xor_bits(l_half, f(r_half, key))
-
-    print(''.join([str(char) for char in l_half]), ''.join([str(char) for char in r_half]))
-    print()
-    # exit()
-
-    # return r_half, f(r_half) ^ l_half
-
-
 def feistel_system(inp: str, f, ksa, block_size: int, rounds: int, is_bits: bool = False) -> str:
     if len(inp) % 2 != 0:
         inp += '\0'
@@ -136,8 +129,8 @@ def feistel_system(inp: str, f, ksa, block_size: int, rounds: int, is_bits: bool
         l_half = ''.join([str(bit) for bit in string_to_bits(l_half)]).zfill(block_size)
         r_half = ''.join([str(bit) for bit in string_to_bits(r_half)]).zfill(block_size)
     else:
-        l_half = l_half.zfill(block_size)
-        r_half = r_half.zfill(block_size)
+        l_half = l_half.zfill(block_size // 2)
+        r_half = r_half.zfill(block_size // 2)
 
     for _ in range(rounds):
         l_half, r_half = r_half, xor_bits(l_half, f(r_half, next(ksa)))
@@ -146,6 +139,26 @@ def feistel_system(inp: str, f, ksa, block_size: int, rounds: int, is_bits: bool
     return l_half + r_half
 
 
+def feistel_system_keys(inp: str, f, keys, block_size: int, rounds: int, is_bits: bool = False) -> str:
+    if len(inp) % 2 != 0:
+        inp += '\0'
+    l_half = inp[:len(inp) // 2]
+    r_half = inp[len(inp) // 2:]
+    if not is_bits:
+        l_half = ''.join([str(bit) for bit in string_to_bits(l_half)]).zfill(block_size)
+        r_half = ''.join([str(bit) for bit in string_to_bits(r_half)]).zfill(block_size)
+    else:
+        l_half = l_half.zfill(block_size // 2)
+        r_half = r_half.zfill(block_size // 2)
+
+    for i in range(rounds):
+        l_half, r_half = r_half, xor_bits(l_half, f(r_half, int(keys[i], 2)))
+
+    l_half, r_half = r_half, l_half
+    return l_half + r_half
+
+
+@cache
 def example_f(bits: str, key: int):
     # 1
     num = int(bits[::-1], 2)
@@ -156,5 +169,10 @@ def example_f(bits: str, key: int):
 
 def example_ksa(key: str, rounds: int):
     for _ in range(rounds):
-        key = f'{int(key[2]) + int(key[3]) % 2}{key[0]}{key[1]}{key[2]}'
+        key = f'{(int(key[2]) + int(key[3])) % 2}{key[0]}{key[1]}{key[2]}'
         yield int(key, 2)
+
+
+@cache
+def permute(inp: str, permutation: tuple[int], base: int = 1):
+    return ''.join([inp[i - base] for i in permutation])

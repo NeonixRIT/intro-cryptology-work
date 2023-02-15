@@ -12,7 +12,9 @@ from bbs_cipher import BBSCipher, BBSKey
 from trivium_cipher import TriviumCipher, TriviumKey
 from rc4_cipher import RC4, RC4Key
 
-from utils import feistel_system, example_f, example_ksa
+from DES_cipher import DESCipher, DESKey
+
+from utils import feistel_system, example_f, example_ksa, chunk_string
 
 from time import perf_counter
 
@@ -94,7 +96,22 @@ def main():
     c11 = RC4(plain_text='pedia', key=RC4Key('Wiki', is_string=True))
     time_cipher(c11, False)
 
-    print(feistel_system('10010001', example_f, example_ksa('1010', 2 + 1), 4, 2, is_bits=True))
+    # Test Feistel System
+    rounds = 1000000
+    start = perf_counter()
+    result = feistel_system('10010001', example_f, example_ksa('1010', rounds + 1), 8, rounds, is_bits=True)
+    stop = perf_counter()
+    print('Feistel System Result:', result)
+    print(f'Execution time: {round(stop - start, 4)} seconds')
+    print()
+
+
+    # Test DES. First Example from https://page.math.tu-berlin.de/~kant/teaching/hess/krypto-ws2006/des.htm
+    c12 = DESCipher(plaintext='Your lips are smoother than vaseline', key=DESKey(''.join([bin(int(val, 16))[2:].zfill(8) for val in '0E 32 92 32 EA 6D 0D 73'.split()]), is_string=False))
+    time_cipher(c12, False)
+
+    c13 = DESCipher(plaintext='ADESTEST', key=DESKey('SOMEKEYV', is_string=True))
+    time_cipher(c13, False)
 
 
 if __name__ == '__main__':

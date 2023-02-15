@@ -39,8 +39,8 @@ class StreamCipher:
         length = len(self.cipher_text) + 1
         ksg = self.__stream_gen(length)
 
-        binery = symmetric_alg(self.cipher_text, ksg)
-        bin_letters = chunk_string(binery, base)
+        binary = symmetric_alg(self.cipher_text, ksg)
+        bin_letters = chunk_string(binary, base)
 
         res = ''
         for bin_letter in bin_letters:

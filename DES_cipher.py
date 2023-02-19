@@ -122,8 +122,11 @@ class DESKey(Key):
         super().__init__(key, friendly_name)
 
 
-def DES_KSA(key: DESKey, encrypt: bool = True):
+def DES_KSA(key: DESKey, encrypt: bool = True, verbose: bool = True, hex_out: bool = False):
     permuted_key = permute(key.key, PC_1)
+    if verbose:
+        print(f'Key ({len(key.key)}):'.ljust(29), key.key if not hex_out else hex(int(key.key, 2)))
+        print(f'Permuted Key ({len(permuted_key)}):'.ljust(29), permuted_key if not hex_out else hex(int(permuted_key, 2)))
     left, right = chunk_string(permuted_key, 28)
 
     shift_func = shift_left
@@ -141,6 +144,9 @@ def DES_KSA(key: DESKey, encrypt: bool = True):
         if i in unique_rounds:
             shift_num = 1
         left, right = shift_func(left, shift_num), shift_func(right, shift_num)
+        if verbose:
+            print(f'After rotation ({len(left)} || {len(right)}):'.ljust(29), left if not hex_out else hex(int(left, 2)), '||', right if not hex_out else hex(int(right, 2)))
+            print(f'Round Key ({len(permute(left + right, PC_2))}):'.ljust(29), permute(left + right, PC_2) if not hex_out else hex(int(permute(left + right, PC_2), 2)))
         yield permute(left + right, PC_2)
 
 

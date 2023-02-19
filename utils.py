@@ -152,7 +152,7 @@ def feistel_system_keys(inp: str, f, keys, block_size: int, rounds: int, is_bits
         r_half = r_half.zfill(block_size // 2)
 
     for i in range(rounds):
-        l_half, r_half = r_half, xor_bits(l_half, f(r_half, int(keys[i], 2)))
+        l_half, r_half = r_half, xor_bits(l_half, f(r_half, keys[i]))
 
     l_half, r_half = r_half, l_half
     return l_half + r_half
@@ -176,3 +176,7 @@ def example_ksa(key: str, rounds: int):
 @cache
 def permute(inp: str, permutation: tuple[int], base: int = 1):
     return ''.join([inp[i - base] for i in permutation])
+
+
+def inverse_permute(permutation: tuple[int], base: int = 1):
+    return tuple([permutation.index(i) + base for i in range(base, len(permutation) + 1)])

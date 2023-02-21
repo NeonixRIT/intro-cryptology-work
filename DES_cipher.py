@@ -122,7 +122,7 @@ class DESKey(Key):
         super().__init__(key, friendly_name)
 
 
-def DES_KSA(key: DESKey, encrypt: bool = True, verbose: bool = True, hex_out: bool = False):
+def DES_KSA(key: DESKey, encrypt: bool = True, verbose: bool = False, hex_out: bool = False):
     permuted_key = permute(key.key, PC_1)
     if verbose:
         print(f'Key ({len(key.key)}):'.ljust(29), key.key if not hex_out else hex(int(key.key, 2)))

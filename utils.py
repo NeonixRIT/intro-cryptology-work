@@ -1,3 +1,4 @@
+import sympy as sp
 from sys import byteorder
 from functools import cache
 
@@ -94,6 +95,14 @@ def xor_bits(a: str, b: str) -> str:
     return ''.join([str(int(a[i]) ^ int(b[i])) for i in range(len(a))])
 
 
+@cache
+def xor_words(a, b):
+    a_bits = ''.join(a)
+    b_bits = ''.join(b)
+    res_bits = xor_bits(a_bits, b_bits)
+    return chunk_string(res_bits, 8)
+
+
 def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, verbos: bool = False) -> list:
     if len(init_state) < degree:
         raise ValueError("The initial state must be at least as long as the degree of the LSFR.")
@@ -180,3 +189,24 @@ def permute(inp: str, permutation: tuple[int], base: int = 1):
 
 def inverse_permute(permutation: tuple[int], base: int = 1):
     return tuple([permutation.index(i) + base for i in range(base, len(permutation) + 1)])
+
+
+def bits_to_poly(bits: str, domain=sp.FiniteField(2)):
+    if sum([int(bit) for bit in bits]) == 0:
+        return sp.Poly('x*0', sp.Symbol('x'), domain=domain)
+    if bits[-1] == '1':
+        return sp.Poly('x**0', sp.Symbol('x'), domain=domain)
+    return sp.Poly(('+' if sum([int(bit) for bit in bits]) > 1 else '').join([f'x**{7 - i}' if i != 7 else '1' for i in range(8) if bits[i] == '1']), domain=domain)
+
+
+def letter_to_poly(letter, domain=sp.FiniteField(2)):
+    letter = bin(ord(letter))[2:].zfill(8)
+    return bits_to_poly(letter, domain)
+
+
+def poly_to_letter(poly: sp.Poly):
+    return chr(int(''.join([str(bit) for bit in poly.all_coeffs()]), 2))
+
+
+def poly_to_byte(poly: sp.Poly):
+    return ''.join([str(bit) for bit in poly.all_coeffs()]).zfill(8)

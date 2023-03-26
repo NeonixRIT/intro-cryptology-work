@@ -91,6 +91,8 @@ class AESKey(Key):
             self.key = [chunk_string(chunks[i], 8) for i in range(4)]
         else:
             self.length = len(key)
+            word_size = DATA[self.length][1] * 8
+            chunks = chunk_string(key, word_size)
             self.key = [chunk_string(chunks[i], 8) for i in range(4)]
 
         if self.length != 128 and self.length != 192 and self.length != 256:
@@ -129,21 +131,27 @@ def mix_cols(state: list[list[sp.Poly]]):
     return cols_to_rows_vise_versa(chunk_string([bin(val if val < 256 else val ^ IR_POLY)[2:].zfill(8) for row in result for val in row], 4))
 
 
-def AES_round_function(block: str, ksa: AESKSA, encrypt: bool = True, verbose: bool = False):
+def AES_round_function(block: str, ksa: AESKSA, is_string: bool = False, encrypt: bool = True, verbose: bool = False):
     rounds = ksa.key.rounds
     ksa = ksa()
 
-    state_as_cols = [[bin(int.from_bytes(letter.encode()))[2:].zfill(8) for letter in block[i * 4:4 * (i + 1)]] for i in range(4)]
+    state_as_cols = []
+    if is_string:
+        state_as_cols = [[bin(int.from_bytes(letter.encode()))[2:].zfill(8) for letter in block[i * 4:4 * (i + 1)]] for i in range(4)]
+    else:
+        state_as_cols = chunk_string(chunk_string(block, 8), 4)
 
     # Round 0
     k0 = next(ksa)
     binary = ''.join([''.join([bits for bits in col]) for col in state_as_cols])
     state_as_cols = chunk_string(chunk_string(xor_bits(binary, k0), 8), 4)
     if verbose:
-        print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(k0, 8))}')
         print(f'Plain    : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(binary, 8))}')
+        print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(k0, 8))}')
         print('\n'.join([' '.join([hex(int(bits, 2))[2:].zfill(2) for bits in col]) for col in cols_to_rows_vise_versa(state_as_cols)]))
         print()
+
+    # Rest of the rounds
     for i in range(rounds):
         subbed = chunk_string(byte_substitution(state_as_cols, encrypt), 4)
         shifted = shift_rows_given_cols(subbed)
@@ -211,6 +219,6 @@ class AESCipher(BlockCipher):
     pass
 
 
-AES_round_function('Two One Nine Two', AESKSA(AESKey('Thats my Kung Fu')), verbose=True)
+# AES_round_function('Two One Nine Two', AESKSA(AESKey('Thats my Kung Fu')), verbose=True)
 # AESKey("abcdefghijklmnop")
 # AESKey("abcdefghijklmnopqrstuvws")

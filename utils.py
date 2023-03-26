@@ -373,7 +373,7 @@ def eulers_phi_verbose(n: int, tabs=1) -> int:
     for e in expr.split(' * '):
         p, x = e[1: -1].split(' ^ ')
         res += f'[({p} ^ {x}) - ({p} ^ {int(x) - 1})] * '
-        vals.append(eval(f'({p} ** {x}) - ({p} ** {int(x) - 1})'))
+        vals.append((int(p) ** int(x)) - (int(p) ** (int(x) - 1)))
     print('\t' * (tabs + 1), res[:-3], sep='')
     print('\t' * (tabs + 1), ' * '.join([str(v) for v in vals]), ' = ', np.product(np.array(vals)), sep='')
     print()

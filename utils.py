@@ -41,6 +41,113 @@ def firstresult(func):
     return wrapper
 
 
+def drbg_cycle(block_1: list[int], block_2: list[int], block_3: list[int]):
+    b_1o_pos = 65 // 93 * len(block_1)
+    b_2o_pos = 68 // 84 * len(block_2)
+    b_3o_pos = 67 // 111 * len(block_3)
+
+    b_1i1_pos = 68 // 93 * len(block_1) + 1
+    b_1i2_pos = len(block_3) - 3
+    b_1i3_pos = b_1i2_pos + 1
+
+    b_2i1_pos = 77 // 84 * len(block_2)
+    b_2i2_pos = len(block_1) - 3
+    b_2i3_pos = b_2i2_pos + 1
+
+    b_3i1_pos = 88 // 111 * len(block_3) + 1
+    b_3i2_pos = len(block_2) - 3
+    b_3i3_pos = b_3i2_pos + 1
+
+    b1_o = (block_1[-1] + block_1[b_1o_pos]) % 2
+    b2_o = (block_2[-1] + block_2[b_2o_pos]) % 2
+    b3_o = (block_3[-1] + block_3[b_3o_pos]) % 2
+
+    b1_i = (block_1[b_1i1_pos] + (b3_o + (block_3[b_1i2_pos] & block_3[b_1i3_pos]))) % 2
+    b2_i = (block_2[b_2i1_pos] + (block_1[b_2i2_pos] & block_1[b_2i3_pos])) % 2
+    b3_i = (block_3[b_3i1_pos] + (block_2[b_3i2_pos] & block_2[b_3i3_pos])) % 2
+
+    del block_1[-1]
+    del block_2[-1]
+    del block_3[-1]
+
+    block_1.append(b1_i)
+    block_2.append(b2_i)
+    block_3.append(b3_i)
+
+    block_1 = shift_right(block_1, 1)
+    block_2 = shift_right(block_2, 1)
+    block_3 = shift_right(block_3, 1)
+
+    zi = (b1_o + b2_o + b3_o) % 2
+    return block_1, block_2, block_3, zi
+
+
+def approved_drbg(entropy, nonce, security_requested: int = 2048):
+    block_1 = [int(entropy[i]) if i < len(entropy) else 0 for i in range(int(31 * security_requested / 96))]
+    block_2 = [int(nonce[i]) if i < len(nonce) else 0 for i in range(int(7 * security_requested / 24) + 1)]
+    block_3 = [1 if i > 107 else 0 for i in range(int(37 * security_requested / 96))]
+
+    # warm up
+    for _ in range(4 * security_requested):
+        block_1, block_2, block_3, _ = drbg_cycle(block_1, block_2, block_3)
+
+    # generate output
+    for _ in range(security_requested):
+        block_1, block_2, block_3, zi = drbg_cycle(block_1, block_2, block_3)
+        yield zi
+
+
+def generate_random_bits(bits_requested: int, key: str = None):
+    primes_256 = [63501805511457467369710635740852238757343623833084154675632279478806503558509, 90043701177638554785940392019956812636621066712813924791033398133624943296641, 100917117378854445249904303042469459596283105246295629981885033009212909952449, 80820906391093384912735098299847189357766548163821999240757497789238497372119, 85454083393931613546048843476790490196356457977206279454712265150747717063121, 102978106558267118708699245762922357409634582483060877891522613555139244966479, 114797111308216206784068983756095856394864813003047815308687507317129014809563, 78416955887490391225655354773561165595342462542477321355639656700041866631339, 103276797568985730142702464288438844718925024186674487785606364967582429584067, 98256667360118294840757842498124769511864608104623929398361067240322307285819]
+    prime_256_bits = ''.join([bin(prime)[2:].zfill(256) for prime in primes_256])
+    n_security = bits_requested + 256
+    if n_security % 2 == 1:
+        n_security += 1
+
+    rand_bits = key
+    if key is None:
+        rand_bits = bin(SystemRandom().getrandbits(n_security * 2))[2:].zfill(n_security * 2)
+    seed, nonce = rand_bits[:n_security], rand_bits[n_security:]
+
+    res = ''
+    i = 1
+    while True:
+        drbg = approved_drbg(seed, nonce, n_security)
+        for _ in range(n_security):
+            res += str(next(drbg))
+            if len(res) == bits_requested:
+                yield res
+                prime = 0
+                # print(i)
+                if i % 10 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 9 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 8 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 7 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 6 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 5 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 4 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 3 == 0:
+                    prime = primes_256[i % 10]
+                elif i % 2 == 0:
+                    prime = primes_256[i % 10]
+                else:
+                    prime = primes_256[0]
+                seed, nonce = bin(prime)[2:].zfill(256) + res, bin(i ** (n_security // 3) + prime)[2:][:n_security]
+                if len(seed) < n_security:
+                    seed += prime_256_bits[(i * (n_security - len(seed))) % 2560:((i + 1) * (n_security - len(seed))) % 2560]
+                if len(nonce) < n_security:
+                    nonce += prime_256_bits[(i * (n_security - len(nonce))) % 2560:((i + 1) * (n_security - len(nonce))) % 2560]
+                res = ''
+                i += 1
+
+
 def read_file_to_words(path):
     res = set()
     with open(path) as file:
@@ -89,15 +196,58 @@ def chunk_string(string: str, chunk_size: int, convert_ascii: bool = False, asci
 
 
 def shift_right(items: str | list, shift: int) -> str | list:
-    if shift % len(items) == 0:
+    shift %= len(items)
+    if shift == 0:
         return items
     return items[-shift:] + items[:-shift]
 
 
 def shift_left(items: str | list, shift: int) -> str | list:
-    if shift % len(items) == 0:
+    shift %= len(items)
+    if shift == 0:
         return items
     return items[shift:] + items[:shift]
+
+
+def rotl(num, bits, zfill_len: int):
+    bits %= zfill_len
+    if bits == 0:
+        return num
+
+    andy = 2 ** (zfill_len - bits) - 1
+    return ((num & andy) << bits) | (num >> (zfill_len - bits))
+
+
+def rotr(num, bits, zfill_len: int):
+    bits %= zfill_len
+    if bits == 0:
+        return num
+
+    andy = 2 ** (zfill_len - bits) - 1
+    return (num >> bits) | (((num & andy) << zfill_len - bits))
+
+
+def shr(num, bits):
+    return num >> bits
+
+
+def shl(num, bits):
+    return num << bits
+
+
+def little_endian_to_int(b: bytes) -> int:
+    int_value = 0
+    for i in range(len(b)):
+        int_value |= (b[i] << (i * 8))
+    return int_value
+
+
+def int_to_little_endian_bytes(number: int) -> bytes:
+    num_bytes = (number.bit_length() + 7) // 8
+    little_endian_bytes = bytearray(num_bytes)
+    for i in range(num_bytes):
+        little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
+    return bytes(little_endian_bytes)
 
 
 def string_to_bits(s: str, char_size: int = 8):
@@ -119,6 +269,7 @@ def bits_to_bytes(s: str, chunk_size: int = 8):
 def bytes_to_string(b: list[bytes], encoding: str = 'utf-8'):
     return b''.join(b).decode(encoding)
 
+
 def bytes_to_ints(b: list[bytes]):
     return [int.from_bytes(byte, byteorder=byteorder) for byte in b]
 
@@ -130,7 +281,7 @@ def string_to_number(string: str, char_size: int = 8) -> int:
 
 def number_to_string(number: int, char_size: int = 8) -> str:
     # return number.to_bytes((number.bit_length() + 7) // 8, 'big').decode(encoding=f'utf-{char_size}')
-    binary = bin(number)[2:].zfill(char_size * (len(bin(number)[2:]) // char_size + 1))
+    binary = bin(number).split('b', 1)[1].zfill(char_size * (len(bin(number)[2:]) // char_size + 1))
     return ''.join([chr(int(byte_letter, 2)) for byte_letter in chunk_string(binary, char_size)])
 
 
@@ -974,18 +1125,23 @@ def generate_prime_miller(min_bits: int, prime_list: tuple[int] = None) -> int:
         prime_list = []
     while True:
         prime = randrange(start, stop)
-        if is_prime_fermat(prime):
+        if is_prime_miller(prime):
             return prime
 
 
-def generate_rsa_key_pair(bits: int = 1024):
-    p = generate_prime_miller(bits // 2)
-    q = generate_prime_miller(bits // 2)
-    n = p * q
-    phi = (p - 1) * (q - 1)
-    e = choice([x for x in range(2, 100) if euclidean_alg_gcd(x, phi) == 1])
-    d = fast_inverse_mod(e, phi)
-    return (e, n), (d, p, q)
+def generate_rsa_key_pair(bits: int = 1024, e: int = 65537):
+    while True:
+        if e is None:
+            e = SystemRandom().randrange(2 ** 16 + 1, 2 ** 256, 2)
+        p = generate_prime_miller(bits // 2)
+        q = 0
+        while abs(p - q) <= 2 ** ((bits // 2) - 100) or q == 0:
+            q = generate_prime_miller(bits // 2)
+        n = p * q
+        phi = (p - 1) * (q - 1)
+        d = fast_inverse_mod(e, phi)
+        if d != -1:
+            return (e, n), (d, p, q)
 
 
 def generate_rsa_key_pair_verbose(bits: int = 1024):
@@ -994,7 +1150,10 @@ def generate_rsa_key_pair_verbose(bits: int = 1024):
     p = generate_prime_miller(bits // 2)
     print('done.')
     print('\tGenerating q... ', end='')
-    q = generate_prime_miller(bits // 2)
+    q = 0
+    while abs(p - q) <= 2 ** ((bits // 2) - 100) or q == 0:
+        print(f'p - q = {abs(p - q)} <= 2 ** {((bits // 2) - 100)} = {2 ** ((bits // 2) - 100)}')
+        q = generate_prime_miller(bits // 2)
     print('done.')
     n = p * q
     print(f'\tn = {str(n)[:5]}...{str(n)[-5:]}')
@@ -1409,275 +1568,6 @@ def diffie_hellman_kex_ec(a: int = None, b: int = None, bit_size: int = 16) -> t
     return (ec, P), (a, b), Ka
 
 
-def DSA():
-    pass
-
-
-def ECDSA():
-    pass
-
-
-def shawe_taylor_random_prime_routine(length, seed):
-    skip_to_14 = False
-    if length < 2:
-        raise ValueError('length must be greater than 1')
-    if length >= 33:
-        skip_to_14 = True
-
-    if not skip_to_14:
-        prime_seed = seed
-        prime_gen_counter = 0
-        while True:
-            c = int.from_bytes(sha256(str(prime_seed).encode()).digest()) ^ int.from_bytes(sha256(str(prime_seed + 1).encode()).digest())
-            c = (2 ** (length - 1)) + (c % (2 ** (length - 1) - 1))
-            c = (2 * (c // 2)) + 1
-            prime_gen_counter += 1
-            prime_seed += 2
-            if is_prime_default(c):
-                prime = c
-                return prime, prime_seed, prime_gen_counter
-            if prime_gen_counter > 4 * length:
-                return 0, 0, 0
-            break
-
-    c0, prime_seed, prime_gen_counter = shawe_taylor_random_prime_routine(length // 2 + 2, seed)
-    if c0 == 0 and prime_seed == 0 and prime_gen_counter == 0:
-        return 0, 0, 0
-
-    iterations = int(length / 256)
-    old_counter = prime_gen_counter
-
-    x = 0
-    for i in range(iterations):
-        x += int.from_bytes(sha256(str(prime_seed + i).encode()).digest()) * (2 ** (i * 256))
-
-    prime_seed += iterations + 1
-    x = 2 ** (length - 1) + (x % (2 ** (length - 1)))
-    t = x // (2 * c0) + 1
-    while True:
-        if 2 * t * c0 + 1 > 2 ** length:
-            t = 2 ** (length - 1) // (2 * c0)
-
-        c = 2 * t * c0 + 1
-        prime_gen_counter += 1
-
-        a = 0
-        for i in range(iterations):
-            a += int.from_bytes(sha256(str(prime_seed + i).encode()).digest()) * (2 ** (i * 256))
-
-        prime_seed += iterations + 1
-        a = 2 + (a % (c - 3))
-        z = square_exponentiation(a, 2 * t, c)
-        if euclidean_alg_gcd(z - 1, c) == 1 and square_exponentiation(z, c0, c) == 1:
-            prime = c
-            return prime, prime_seed, prime_gen_counter
-        if prime_gen_counter > old_counter + 4 * length:
-            return 0, 0, 0
-        t += 1
-
-
-def provable_prime_constructor(L, N1, N2, firstseed, e):
-    p1 = None
-    p2 = None
-    p0seed = None
-    p2seed = None
-    if N1 == 1:
-        p1 = 1
-        p2seed = firstseed
-    else:
-        p1, p2seed, _ = shawe_taylor_random_prime_routine(N1, firstseed)
-        if p1 == 0 and p2 == 0:
-            return 0, 0, 0, 0
-
-    if N2 == 1:
-        p2 = 1
-        p0seed = firstseed
-    else:
-        p2, p0seed, _ = shawe_taylor_random_prime_routine(N2, p2seed)
-        if p2 == 0 and p0seed == 0:
-            return 0, 0, 0, 0
-
-    p0, pseed, _ = shawe_taylor_random_prime_routine(L // 2 + 2, p0seed)
-    if p2 == 0 and p0seed == 0:
-        return 0, 0, 0, 0
-
-    if euclidean_alg_gcd(p0 * p1, p2) != 1:
-        return 0, 0, 0, 0
-
-    iterations = L // 256
-    pgen_counter = 0
-
-    x = 0
-    for i in range(iterations):
-        x += int.from_bytes(sha256(str(pseed + i).encode()).digest()) * (2 ** (i * 256))
-    pseed += iterations + 1
-    x = int((2 ** 0.5) * (2 ** (L - 1))) + (x % ((2 ** L) - int(2 ** (L - 1))))
-
-    y = fast_inverse_mod(p0 * p1, p2)
-    if p0 * p1 * p2 == 0:
-        return 0, 0, 0, 0
-
-    t = (((2 * y * p0 * p1) + x) // (2 * p0 * p1 * p2)) + 1
-    while True:
-        if (2 * (t * p2 - y) * p0 * p1 + 1) > 2 ** L:
-            t = ((2 * y * p0 * p1 + int(2 ** (L - 1))) // (2 * p0 * p1 * p2)) + 1
-
-        p = 2 * (t * p2 - y) * p0 * p1 + 1
-        pgen_counter += 1
-        if euclidean_alg_gcd(p - 1, e) == 1:
-            a = 0
-            for i in range(iterations):
-                a += int.from_bytes(sha256(str(pseed + i).encode()).digest()) * (2 ** (i * 256))
-            pseed += iterations + 1
-            a = 2 + (a % (p - 3))
-            z = square_exponentiation(a, 2 * (t * p2 - y) * p1, p)
-            if euclidean_alg_gcd(z - 1, p) == 1 and square_exponentiation(z, p0, p) == 1:
-                return p, p1, p2, pseed
-
-        if pgen_counter > 5 * L:
-            return 0, 0, 0, 0
-        t += 1
-
-        return p, p1, p2, pseed
-
-
-def get_p_q(nlen, e, seed):
-    working_seed = seed
-
-    L = nlen // 2
-    N1 = 1
-    N2 = 1
-
-    p = 0
-    while p == 0:
-        p, _, _, pseed = provable_prime_constructor(L, N1, N2, working_seed, e)
-        working_seed = pseed
-
-    q = 0
-    while abs(p - q) <= 2 ** (L - 100) or q == 0:
-        q, _, _, qseed = provable_prime_constructor(L, N1, N2, working_seed, e)
-        working_seed = qseed
-    return p, q
-
-
-def drbg_cycle(block_1: list[int], block_2: list[int], block_3: list[int]):
-    b_1o_pos = 65 // 93 * len(block_1)
-    b_2o_pos = 68 // 84 * len(block_2)
-    b_3o_pos = 67 // 111 * len(block_3)
-
-    b_1i1_pos = 68 // 93 * len(block_1) + 1
-    b_1i2_pos = len(block_3) - 3
-    b_1i3_pos = b_1i2_pos + 1
-
-    b_2i1_pos = 77 // 84 * len(block_2)
-    b_2i2_pos = len(block_1) - 3
-    b_2i3_pos = b_2i2_pos + 1
-
-    b_3i1_pos = 88 // 111 * len(block_3) + 1
-    b_3i2_pos = len(block_2) - 3
-    b_3i3_pos = b_3i2_pos + 1
-
-    b1_o = (block_1[-1] + block_1[b_1o_pos]) % 2
-    b2_o = (block_2[-1] + block_2[b_2o_pos]) % 2
-    b3_o = (block_3[-1] + block_3[b_3o_pos]) % 2
-
-    b1_i = (block_1[b_1i1_pos] + (b3_o + (block_3[b_1i2_pos] & block_3[b_1i3_pos]))) % 2
-    b2_i = (block_2[b_2i1_pos] + (block_1[b_2i2_pos] & block_1[b_2i3_pos])) % 2
-    b3_i = (block_3[b_3i1_pos] + (block_2[b_3i2_pos] & block_2[b_3i3_pos])) % 2
-
-    del block_1[-1]
-    del block_2[-1]
-    del block_3[-1]
-
-    block_1.append(b1_i)
-    block_2.append(b2_i)
-    block_3.append(b3_i)
-
-    block_1 = shift_right(block_1, 1)
-    block_2 = shift_right(block_2, 1)
-    block_3 = shift_right(block_3, 1)
-
-    zi = (b1_o + b2_o + b3_o) % 2
-    return block_1, block_2, block_3, zi
-
-
-def approved_drbg(entropy, nonce, security_requested: int = 2048):
-    block_1 = [int(entropy[i]) if i < len(entropy) else 0 for i in range(int(31 * security_requested / 96))]
-    block_2 = [int(nonce[i]) if i < len(nonce) else 0 for i in range(int(7 * security_requested / 24) + 1)]
-    block_3 = [1 if i > 107 else 0 for i in range(int(37 * security_requested / 96))]
-
-    # warm up
-    for _ in range(4 * security_requested):
-        block_1, block_2, block_3, _ = drbg_cycle(block_1, block_2, block_3)
-
-    # generate output
-    for _ in range(security_requested):
-        block_1, block_2, block_3, zi = drbg_cycle(block_1, block_2, block_3)
-        yield zi
-
-
-def generate_random_bits(bits_requested: int):
-    n_security = bits_requested + 256
-    if n_security % 2 == 1:
-        n_security += 1
-    rand_bits = bin(SystemRandom().getrandbits(n_security + n_security // 2))[2:]
-    seed, nonce = rand_bits[:n_security], rand_bits[n_security:]
-
-    res = ''
-    while True:
-        drbg = approved_drbg(seed, nonce, n_security)
-        for _ in range(n_security):
-            res += str(next(drbg))
-            if len(res) == bits_requested:
-                return res
-        nonce, seed = seed[n_security // 2:], res
-
-
-def RSA(bit_len: int = 2048, e: int = 65537):
-    # RSA SPECIFICATION REQUIREMENTS
-    # RSA Private Key used to create Digital Signature
-    #     - n: product of two primes p and q, could also be stored as p and q
-    #     - e: public exponent
-    #     - d: private exponent
-    # RSA Public Key used to verify Digital Signature
-    #     - n: product of two primes p and q
-    #     - e: public exponent
-    # p, q, d must be kept secret
-    # n must be even bit length <= 2048
-    # p and q must be equal bit len and half the bit len of n
-    # p must be sqrt(2)(2^(n/2 - 1)) <= p <= 2^(n/2 - 1)
-    # q must be sqrt(2)(2^(n/2 - 1)) <= q <= 2^(n/2 - 1)
-    # |p - q| > 2^(n/2 - 100)
-    # Approved hash functions must have >= security strength of n
-    # e must be odd and 2^16 < e < 2^256 and must be selected before p, q
-    # e may either be fixed or random
-    # d must be positive and 2^(n/2) < d < LCM(p-1, q-1)
-    # d = e^-1 mod LCM(p-1, q-1)
-    # LCM(p-1, q-1) = phi(n) = (p-1)(q-1)
-    # if d <= 2^(n/2) then select new p, q, d. new e is optional
-
-    # p/q prime generation specifications
-    # seed used for random number generation must have twice the security strength of n
-    # SEED GENERATION
-    #     - input: bit len of n
-    #     - output: status, success or failure
-    #     - output: seed, if failure, seed is 0
-    #
-    #     - if n bits not valid then return failure
-    #     - return 2 * n bits from DRBG
-    # doesnt work correctly.... p/q arent prime
-    while True:
-        if e is None:
-            e = SystemRandom().randrange(2 ** 16 + 1, 2 ** 256, 2)
-        seed = int(generate_random_bits(2 * bit_len), 2)
-        p, q = get_p_q(bit_len, e, seed)
-        n = p * q
-        phi = (p - 1) * (q - 1)
-        d = fast_inverse_mod(e, phi)
-        if d != -1:
-            return (e, n), (d, p, q)
-
-
 def time_function(func, *args, **kwargs):
     start = perf_counter()
     res = func(*args, **kwargs)
@@ -1746,7 +1636,13 @@ def time_crt(compare_builtin: bool = False):
 
 
 def main():
-    pass
+    # i = 0
+    # for long in generate_random_bits(1024):
+    #     print(long, end='')
+    #     if i == 12 * 2:
+    #         break
+    #     i += 1
+    print(generate_prime_miller(1024))
 
 
 if __name__ == '__main__':

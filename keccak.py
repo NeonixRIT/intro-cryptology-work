@@ -1,7 +1,6 @@
 import math
 from typing import Callable
-from utils import big_endian_to_int, int_to_big_endian_bytes
-from enum import Enum
+from utils import big_endian_to_int
 # from hashlib import sha3_256
 """
 Algorithm Parameterss and Other Variables:
@@ -393,7 +392,6 @@ class Sheet:
 
     def __getitem__(self, y: int):
         return self.__sheet[(y + 2) % 5]
-        # return self.__sheet[y]
 
     def __setitem__(self, y: int, v: Lane):
         self.__sheet[(y + 2) % 5] = v
@@ -412,10 +410,6 @@ class State:
                 for y in range(5):
                     for z in range(w):
                         self.sheets[(x + 2) % 5][y][z] = int(S[w * (5 * y + x) + z])
-                        # self.sheets[(x + 2) % 5][(y + 2) % 5][z] = S[w * (5 * y + x) + z]
-                        # self.sheets[x][y][z] = int(S[w * (5 * y + x) + z])
-                        # self.planes[(y + 2) % 5][(x + 2) % 5][z] = S[w * (5 * y + x) + z]
-                        # self.slices[z][(x + 2) % 5][(y + 2) % 5] = S[w * (5 * y + x) + z]
 
     def __str__(self) -> str:
         S = ''
@@ -423,10 +417,6 @@ class State:
             for x in range(5):
                 for z in range(self.w):
                     S += str(self[x][y][z])
-        # for x in range(5):
-        #     for y in range(5):
-        #         for z in range(self.w):
-        #             S += str(self[x][y][z])
         return S
 
     def __repr__(self) -> str:
@@ -440,20 +430,8 @@ class State:
     def __getitem__(self, x: int) -> Sheet:
         return self.sheets[(x + 2) % 5]
 
-    # def __getitem__(self, y: int) -> Sheet:
-    #     return self.planes[y]
-
-    # def __getitem__(self, z: int) -> Slice:
-    #     return self.slices[z]
-
     def __setitem__(self, x: int, value: Sheet) -> None:
         self.sheets[(x + 2) % 5] = value
-
-    # def __setitem__(self, y: int, value: Sheet) -> None:
-    #     self.planes[(y + 2) % 5] = value
-
-    # def __setitem__(self, z: int, value: Sheet) -> None:
-    #     self.slices[(z + 2) % 5] = value
 
     def empty_state(self):
         return State(self.w)
@@ -630,7 +608,7 @@ class Keccak_p:
 
 class Keccak_f(Keccak_p):
     def __init__(self, b: int):
-        L = [i for i in range(7) if 2 ** i == b / 25][0]
+        L = [i for i in range(7) if 2 ** i == b / 25][0] # l = log2(b / 25)
         n_r = 12 + 2 * L
         super().__init__(b, n_r)
 
@@ -794,6 +772,22 @@ class KMAC256:
         X = h2b(X)
         new_X = bytes.fromhex(b2h(bytepad(encode_string(self.__K), self.__cSHAKE.rate) + X + right_encode(self.__cSHAKE.L)))
         return self.__cSHAKE(new_X)
+
+
+def sha3_224(M: bytes) -> int:
+    return sha3(M, 224)
+
+
+def sha3_256(M: bytes) -> int:
+    return sha3(M, 256)
+
+
+def sha3_384(M: bytes) -> int:
+    return sha3(M, 384)
+
+
+def sha3_512(M: bytes) -> int:
+    return sha3(M, 512)
 
 
 def main():

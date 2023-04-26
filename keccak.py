@@ -1,7 +1,6 @@
 import math
 from typing import Callable
 from utils import big_endian_to_int
-# from hashlib import sha3_256
 """
 Algorithm Parameterss and Other Variables:
 A               -    A state array.

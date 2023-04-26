@@ -1,4 +1,4 @@
-from utils import rotl, generate_random_bits, chunk_string, bits_to_bytes, little_endian_to_int, int_to_little_endian_bytes
+from utils import rotl, generate_random_bits_nlsfr, chunk_string, bits_to_bytes, little_endian_to_int, int_to_little_endian_bytes
 
 
 def sip_round(v0, v1, v2, v3, bit_limit: int = 64):
@@ -61,7 +61,7 @@ def siphashcdo(c: int, d: int, o: int, message: bytes, k: bytes) -> int:
         key_bin = bin(little_endian_to_int(k) ** hashes)[2:]
         if len(key_bin) < o * 2 + 256:
             key_bin = key_bin + primes_bin[:o * 2 + 256 - len(key_bin)]
-        ksa = generate_random_bits(o * 2, key_bin)
+        ksa = generate_random_bits_nlsfr(o * 2, key_bin)
         keys = chunk_string(next(ksa), 128)
         keys = [int_to_little_endian_bytes(int(key, 2)) for key in keys]
 
@@ -95,7 +95,7 @@ class SIPCDO:
         self.c = c
         self.d = d
         self.o = out_len
-        self.__k = k if k else b''.join(bits_to_bytes(next(generate_random_bits(128))))
+        self.__k = k if k else b''.join(bits_to_bytes(next(generate_random_bits_nlsfr(128))))
 
     @property
     def __name__(self):

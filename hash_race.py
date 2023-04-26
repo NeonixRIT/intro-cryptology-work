@@ -1,7 +1,7 @@
 import time
 from sip import sip13, sip24, sip35
-from sha import sha2
-from utils import number_to_string, generate_random_bits
+from sha2 import sha2
+from utils import number_to_string
 from alive_progress import alive_bar
 
 def hash_first_char(a_string: str) -> int:

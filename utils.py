@@ -97,7 +97,7 @@ def approved_drbg(entropy, nonce, security_requested: int = 2048):
         yield zi
 
 
-def generate_random_bits(bits_requested: int, key: str = None):
+def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
     primes_256 = [63501805511457467369710635740852238757343623833084154675632279478806503558509, 90043701177638554785940392019956812636621066712813924791033398133624943296641, 100917117378854445249904303042469459596283105246295629981885033009212909952449, 80820906391093384912735098299847189357766548163821999240757497789238497372119, 85454083393931613546048843476790490196356457977206279454712265150747717063121, 102978106558267118708699245762922357409634582483060877891522613555139244966479, 114797111308216206784068983756095856394864813003047815308687507317129014809563, 78416955887490391225655354773561165595342462542477321355639656700041866631339, 103276797568985730142702464288438844718925024186674487785606364967582429584067, 98256667360118294840757842498124769511864608104623929398361067240322307285819]
     prime_256_bits = ''.join([bin(prime)[2:].zfill(256) for prime in primes_256])
     n_security = bits_requested + 256
@@ -242,12 +242,27 @@ def little_endian_to_int(b: bytes) -> int:
     return int_value
 
 
+def big_endian_to_int(b: bytes) -> int:
+    int_value = 0
+    for i in range(len(b)):
+        int_value = int_value * 256 + int(b[i])
+    return int_value
+
+
 def int_to_little_endian_bytes(number: int) -> bytes:
     num_bytes = (number.bit_length() + 7) // 8
     little_endian_bytes = bytearray(num_bytes)
     for i in range(num_bytes):
         little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
     return bytes(little_endian_bytes)
+
+
+def int_to_big_endian_bytes(number: int) -> bytes:
+    num_bytes = (number.bit_length() + 7) // 8
+    little_endian_bytes = bytearray(num_bytes)
+    for i in range(num_bytes):
+        little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
+    return bytes(little_endian_bytes)[::-1]
 
 
 def string_to_bits(s: str, char_size: int = 8):

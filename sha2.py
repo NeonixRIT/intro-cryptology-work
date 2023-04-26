@@ -211,6 +211,46 @@ def sha2(message: bytes, out_len: int = 256, verbose: bool = False) -> int:
     return int(''.join([bin(num)[2:].zfill(domain.word_size) for num in Hi[:domain.hi_len]]), 2)
 
 
+def sha224(message: bytes) -> int:
+    """
+    Returns the SHA-224 hash of the message.
+
+    :param message: The message to hash.
+    :return: The hash of the message.
+    """
+    return sha2(message, 224)
+
+
+def sha256(message: bytes) -> int:
+    """
+    Returns the SHA-256 hash of the message.
+
+    :param message: The message to hash.
+    :return: The hash of the message.
+    """
+    return sha2(message, 256)
+
+
+def sha384(message: bytes) -> int:
+    """
+    Returns the SHA-384 hash of the message.
+
+    :param message: The message to hash.
+    :return: The hash of the message.
+    """
+    return sha2(message, 384)
+
+
+def sha512(message: bytes) -> int:
+    """
+    Returns the SHA-512 hash of the message.
+
+    :param message: The message to hash.
+    :return: The hash of the message.
+    """
+    return sha2(message, 512)
+
+
 def main():
     from hashlib import sha224, sha256, sha384, sha512
     light_red = '\033[91m'
@@ -219,9 +259,6 @@ def main():
     white = '\033[0m'
 
     test_vector_all = [(224, sha224), (256, sha256), (384, sha384), (512, sha512)]
-    # test_vector_normal = [(256, sha256), (512, sha512)]
-    # test_vector_odd = [(224, sha224), (384, sha384)]
-
     test_vector = test_vector_all
     for message in ['The quick brown fox jumps over the lazy dog', 'Some other dumb sentence that I made up thats really long because I want multiple runs in the function just to make sure that it works well', 'abc', '']:
         print(f'{light_yellow}Message: `{message}`{white}')

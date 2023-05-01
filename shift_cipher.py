@@ -54,4 +54,4 @@ class ShiftCipher(Cipher):
                 self.key = key
                 self.plain_text = perm
                 return key, perm
-            return
+        return

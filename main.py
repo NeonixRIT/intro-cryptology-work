@@ -65,6 +65,10 @@ def main():
     c2 = SubCipher(plain_text="HELLO THIS IS A TEST", key=sub_key)
     time_cipher(c2, False)
 
+    t = 'svunhnvpuhaptlmvynvaaluhwylalyuhabyhslcluaaoyldaolzlhzvuzvbavmihshujlpuhshukdolylzbttlyzjhushzakljhklzhukdpualyzhspmlaptlayvbislpziyldpun'.upper()
+    ShiftCipher(cipher_text=t).get_key()
+
+
     c3 = PermCipher(plain_text='substitutionciphersaretooeasytobreak'.upper(), key={1: 3, 2: 4, 3: 2, 4: 1, 5: 5})
     time_cipher(c3, False)
 

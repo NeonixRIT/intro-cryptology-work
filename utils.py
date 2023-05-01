@@ -98,6 +98,12 @@ def approved_drbg(entropy, nonce, security_requested: int = 2048):
 
 
 def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
+    '''
+    Generates random bits using a Non-Linear Shift Register
+    TODO: optimize each round to use bitwise operations instead of list operations
+    '''
+    return_bits = bits_requested
+    bits_requested = max(bits_requested, 128)
     primes_256 = [63501805511457467369710635740852238757343623833084154675632279478806503558509, 90043701177638554785940392019956812636621066712813924791033398133624943296641, 100917117378854445249904303042469459596283105246295629981885033009212909952449, 80820906391093384912735098299847189357766548163821999240757497789238497372119, 85454083393931613546048843476790490196356457977206279454712265150747717063121, 102978106558267118708699245762922357409634582483060877891522613555139244966479, 114797111308216206784068983756095856394864813003047815308687507317129014809563, 78416955887490391225655354773561165595342462542477321355639656700041866631339, 103276797568985730142702464288438844718925024186674487785606364967582429584067, 98256667360118294840757842498124769511864608104623929398361067240322307285819]
     prime_256_bits = ''.join([bin(prime)[2:].zfill(256) for prime in primes_256])
     n_security = bits_requested + 256
@@ -116,30 +122,9 @@ def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
         for _ in range(n_security):
             res += str(next(drbg))
             if len(res) == bits_requested:
-                yield res
-                prime = 0
-                # print(i)
-                if i % 10 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 9 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 8 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 7 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 6 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 5 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 4 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 3 == 0:
-                    prime = primes_256[i % 10]
-                elif i % 2 == 0:
-                    prime = primes_256[i % 10]
-                else:
-                    prime = primes_256[0]
-                seed, nonce = bin(prime)[2:].zfill(256) + res, bin(i ** (n_security // 3) + prime)[2:][:n_security]
+                yield res[:return_bits]
+                prime = primes_256[i % 10]
+                seed, nonce = res + bin(prime)[2:], bin(i ** (n_security // 3) + prime)[2:][:n_security]
                 if len(seed) < n_security:
                     seed += prime_256_bits[(i * (n_security - len(seed))) % 2560:((i + 1) * (n_security - len(seed))) % 2560]
                 if len(nonce) < n_security:
@@ -783,7 +768,7 @@ def brents_cycle_check_ec(xy0, func, mod, a, verbose=False):
     return lam, mu
 
 
-@cache
+# @cache
 def prime_factors_brents(n):
     if n <= 1:
         return []
@@ -1651,13 +1636,12 @@ def time_crt(compare_builtin: bool = False):
 
 
 def main():
-    # i = 0
-    # for long in generate_random_bits(1024):
-    #     print(long, end='')
-    #     if i == 12 * 2:
-    #         break
-    #     i += 1
-    print(generate_prime_miller(1024))
+    i = 0
+    for long in generate_random_bits_nlsfr(3):
+        print(long, end='')
+        if i == 12 * 2:
+            break
+        i += 1
 
 
 if __name__ == '__main__':

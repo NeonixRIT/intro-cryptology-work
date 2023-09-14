@@ -133,6 +133,28 @@ def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
                 i += 1
 
 
+def GF_256_multiply(a, b):
+    p = 0
+    for _ in range(8):
+        if b & 1:  # Rightmost bit of b is set
+            p ^= a  # Exclusive OR (polynomial addition)
+        carry = a & 0x80  # Leftmost bit of a
+        a <<= 1  # Shift a one bit to the left
+        if carry:  # If carry had a value of one
+            a ^= 0x1b  # Exclusive OR with 0x1b    
+        b >>= 1  # Shift b one bit to the right
+    return p
+
+
+def words_to_bytes(words: list[bytes]) -> bytes:
+    return bytes([byte for word in words for byte in word])
+
+
+@cache
+def xor_words(a: bytes, b: bytes) -> bytes:
+    return bytes([a[i] ^ b[i] for i in range(len(a))])
+
+
 def read_file_to_words(path):
     res = set()
     with open(path) as file:
@@ -288,14 +310,6 @@ def number_to_string(number: int, char_size: int = 8) -> str:
 @cache
 def xor_bits(a: str, b: str) -> str:
     return ''.join([str(int(a[i]) ^ int(b[i])) for i in range(len(a))])
-
-
-@cache
-def xor_words(a, b):
-    a_bits = ''.join(a)
-    b_bits = ''.join(b)
-    res_bits = xor_bits(a_bits, b_bits)
-    return chunk_string(res_bits, 8)
 
 
 def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, verbos: bool = False) -> list:
@@ -876,7 +890,6 @@ def extended_euclidean_default(a: int, b: int):
     s0, s1 = 1, 0
     t0, t1 = 0, 1
 
-    i = 1
     while a % b != 0:
         q = a // b
         r = a % b
@@ -885,7 +898,6 @@ def extended_euclidean_default(a: int, b: int):
         a, b = b, r
         s0, s1 = s1, s
         t0, t1 = t1, t
-        i += 1
     return s % orig_b, t % orig_b
 
 
@@ -1642,6 +1654,16 @@ def main():
         if i == 12 * 2:
             break
         i += 1
+
+    # degree = 4  # number of 'boxes' or exponent of first term in poly
+    # gates = [3, 2, 1, 0] # exponent of each term after first in order left to right
+    # init_state = '1111' # initial state of the register, left to right
+    # how_many_lines_to_output = (2 ** degree) - 1 # how many lines to output
+    # verbose = True # print table as as generator is looped through
+
+    # # just call list to loop through all output.
+    # list(lsfr(degree, gates, init_state, how_many_lines_to_output, verbose))
+
 
 
 if __name__ == '__main__':

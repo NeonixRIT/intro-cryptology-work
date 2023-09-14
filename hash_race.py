@@ -33,15 +33,23 @@ def build_collision_counter(hash_func, filename: str) -> tuple:
     with open(filename) as file:
         for line in file:
             items_hashed += 1
-            val = line.encode()
+            # val = line.encode()
             start = time.perf_counter()
-            key = hash_func(val)
+            key = hash_func(line)
             stop = time.perf_counter()
             total_time += stop - start
             if key in collision_counter:
                 collision_counter[key] += 1
             else:
                 collision_counter[key] = 0
+            for word in line.split():
+                key = hash_func(word)
+                if key in collision_counter:
+                    print(word)
+                    collision_counter[key] += 1
+                else:
+                    collision_counter[key] = 0
+                items_hashed += 1
     return collision_counter, items_hashed, total_time
 
 

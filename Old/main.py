@@ -1,3 +1,6 @@
+'''
+DEPRECATED
+'''
 from key import Key
 from stream_cipher import StreamCipher
 
@@ -12,7 +15,6 @@ from bbs_cipher import BBSCipher, BBSKey
 from trivium_cipher import TriviumCipher, TriviumKey
 from rc4_cipher import RC4, RC4Key
 
-from DES_cipher import DESCipher, DESKey
 
 from utils import feistel_system, example_f, example_ksa, chunk_string
 
@@ -110,12 +112,12 @@ def main():
     print()
 
     # Test DES. First Example from https://page.math.tu-berlin.de/~kant/teaching/hess/krypto-ws2006/des.htm
-    c12 = DESCipher(plaintext='Your lips are smoother than vaseline', key=DESKey(''.join([bin(int(val, 16))[2:].zfill(8) for val in '0E 32 92 32 EA 6D 0D 73'.split()]), is_string=False))
-    time_cipher(c12, False)
+    # c12 = DESCipher(plaintext='Your lips are smoother than vaseline', key=DESKey(''.join([bin(int(val, 16))[2:].zfill(8) for val in '0E 32 92 32 EA 6D 0D 73'.split()]), is_string=False))
+    # time_cipher(c12, False)
 
-    c13 = DESCipher(plaintext='ADESTEST', key=DESKey('SOMEKEYV', is_string=True))
-    time_cipher(c13, False)
+    # c13 = DESCipher(plaintext='ADESTEST', key=DESKey('SOMEKEYV', is_string=True))
+    # time_cipher(c13, False)
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

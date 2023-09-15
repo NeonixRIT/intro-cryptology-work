@@ -1,3 +1,7 @@
+'''
+DEPRECATED.
+REWRITE LIKE I DID WITH AES
+'''
 from functools import cache
 
 from block_cipher import BlockCipher, KeyStreamGenerator

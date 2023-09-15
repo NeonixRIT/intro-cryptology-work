@@ -61,235 +61,14 @@ S_BOX_INV = [
 
 # Key length to (rounds, key_words, max_rcon)
 DATA = {
-    128: (10, 4, 9),
-    192: (12, 6, 7),
-    256: (14, 8, 6),
-    'rc': [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
+    128: (10, 4),
+    192: (12, 6),
+    256: (14, 8),
 }
 
+ROUND_CONSTANTS = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
+
 IR_POLY = 0x11b
-
-
-def cols_to_rows_vise_versa(state: list[list[str]]) -> list[list[str]]:
-    return [[state[i][j] for i in range(4)] for j in range(4)]
-
-
-def shift_rows_given_cols(state: list[list[str]], inverse: bool = False) -> list[list[str]]:
-    state = cols_to_rows_vise_versa(state)
-    shift_func = shift_right if inverse else shift_left
-    shifted_rows = [shift_func(state[i], i) for i in range(4)]
-    return cols_to_rows_vise_versa(shifted_rows)
-
-
-def key_chunks_to_key(key_chunks):
-    return ''.join(key_chunks[i][j] for i in range(len(key_chunks)) for j in range(len(key_chunks[i])))
-
-
-class AESKey(Key):
-    def __init__(self, key: str, is_string: bool = True):
-        self.length = 0
-        friendly_string = key if is_string else None
-        if is_string:
-            if len(key) * 8 not in DATA:
-                raise ValueError("Invalid key length")
-            word_size = DATA[len(key) * 8][1] * 8
-            binary = ''.join([bin(int.from_bytes(letter.encode("utf-8")))[2:].zfill(8) for letter in key])
-            self.length = len(binary)
-            chunks = chunk_string(binary, word_size)
-            self.key = [chunk_string(chunks[i], 8) for i in range(4)]
-        else:
-            self.length = len(key)
-            word_size = DATA[self.length][1] * 8
-            chunks = chunk_string(key, word_size)
-            self.key = [chunk_string(chunks[i], 8) for i in range(4)]
-
-        if self.length != 128 and self.length != 192 and self.length != 256:
-            raise ValueError(f"Invalid key length: {self.length}")
-
-        self.rounds = DATA[self.length][0]
-        super().__init__(self.key, friendly_string)
-
-
-class AESKSA:
-    def __init__(self, key: AESKey):
-        self.key = key
-
-    def __call__(self):
-        return AES_KSA(self.key, self.key.rounds + 1)
-
-
-def byte_substitution(state: list[list[str]], inverse: bool = False):
-    s_box = S_BOX_INV if inverse else S_BOX
-    poly_bytes = [b for row in state for b in row] if isinstance(state[0], list) else [s for s in state]
-    for i, bits in enumerate(poly_bytes):
-        row = int(bits[:4], 2)
-        col = int(bits[4:], 2)
-        poly_bytes[i] = bin(s_box[row][col])[2:].zfill(8)
-    return poly_bytes
-
-
-def mix_cols(state: list[list[str]], inverse: bool = False) -> list[list[str]]:
-    cur_matrix = MIX_MATRIX_INV if inverse else MIX_MATRIX
-    state = cols_to_rows_vise_versa(state)
-    result = [[0] * len(state[0]) for _ in range(len(cur_matrix))]
-    for i in range(len(cur_matrix)):
-        for j in range(len(state[0])):
-            for k in range(len(state)):
-                res = GF_256_multiply(cur_matrix[i][k], int(state[k][j], 2))
-                result[i][j] ^= res % 256
-    return cols_to_rows_vise_versa(chunk_string([bin(val)[2:].zfill(8) for row in result for val in row], 4))
-
-
-
-def AES_encrypt(block: str, ksa: AESKSA, is_string: bool = False, verbose: bool = False):
-    rounds = ksa.key.rounds
-    ksa = ksa()
-
-    state_as_cols = []
-    if is_string:
-        state_as_cols = [[bin(int.from_bytes(letter.encode()))[2:].zfill(8) for letter in block[i * 4:4 * (i + 1)]] for i in range(4)]
-    else:
-        state_as_cols = chunk_string(chunk_string(block, 8), 4)
-
-    # Round 0, only add round key
-    k0 = next(ksa)
-    binary = ''.join([''.join([bits for bits in col]) for col in state_as_cols])
-    state_as_cols = chunk_string(chunk_string(xor_bits(binary, k0), 8), 4)
-    if verbose:
-        print(f'Plain    : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(binary, 8))}')
-        print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(k0, 8))}')
-        print('\n'.join([' '.join([hex(int(bits, 2))[2:].zfill(2) for bits in col]) for col in cols_to_rows_vise_versa(state_as_cols)]))
-        print()
-
-    # Rest of the rounds
-    for i in range(rounds):
-        # Substitute Bytes
-        subbed = chunk_string(byte_substitution(state_as_cols), 4)
-
-        # Shift Rows
-        shifted = shift_rows_given_cols(subbed)
-
-        # Mix Columns
-        # Last Round, Dont Mix Columns
-        if i != rounds - 1:
-            mixed = mix_cols(shifted)
-        else:
-            mixed = shifted
-
-        binary = ''.join([''.join([bits for bits in col]) for col in mixed])
-
-        # Add Round Key
-        ki = next(ksa)
-        state_as_cols = chunk_string(chunk_string(xor_bits(binary, ki), 8), 4)
-        if verbose:
-            print(f'Subbed   : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(key_chunks_to_key(subbed), 8))}')
-            print(f'Shifted  : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(key_chunks_to_key(shifted), 8))}')
-            print(f'Mixed    : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(binary, 8))}')
-            print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(ki, 8))}')
-            print('\n'.join([' '.join([hex(int(bits, 2))[2:].zfill(2) for bits in col]) for col in cols_to_rows_vise_versa(state_as_cols)]))
-            print()
-    return ''.join([bits for col in state_as_cols for bits in col])
-
-
-def AES_decrypt(block: str, ksa: AESKSA, is_string: bool = False, verbose: bool = False):
-    rounds = ksa.key.rounds
-    ksa = ksa()
-
-    state_as_cols = []
-    if is_string:
-        state_as_cols = [[bin(int.from_bytes(letter.encode()))[2:].zfill(8) for letter in block[i * 4:4 * (i + 1)]] for i in range(4)]
-    else:
-        state_as_cols = chunk_string(chunk_string(block, 8), 4)
-
-    keys = list(ksa)[::-1]
-
-    # First Round, only add round key
-    k0 = keys[0]
-    binary = ''.join([''.join([bits for bits in col]) for col in state_as_cols])
-    state_as_cols = chunk_string(chunk_string(xor_bits(binary, k0), 8), 4)
-    if verbose:
-        print(f'Plain    : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(binary, 8))}')
-        print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(k0, 8))}')
-        print('\n'.join([' '.join([hex(int(bits, 2))[2:].zfill(2) for bits in col]) for col in cols_to_rows_vise_versa(state_as_cols)]))
-        print()
-
-    # Rest of the rounds
-    for i in range(rounds):
-        # Shift Rows
-        shifted = shift_rows_given_cols(state_as_cols, True)
-
-        # Substitute Bytes
-        subbed = chunk_string(byte_substitution(shifted, True), 4)
-
-        # Add Round Key
-        ki = keys[i + 1]
-        binary = ''.join([''.join([bits for bits in col]) for col in subbed])
-        state_as_cols = chunk_string(chunk_string(xor_bits(binary, ki), 8), 4)
-
-        # Mix Columns
-        # Last Round, Dont Mix Columns
-        if i != rounds - 1:
-            mixed = mix_cols(state_as_cols, True)
-        else:
-            mixed = state_as_cols
-        state_as_cols = mixed
-
-        if verbose:
-            print(f'Shifted  : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(key_chunks_to_key(shifted), 8))}')
-            print(f'Subbed   : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(key_chunks_to_key(subbed), 8))}')
-            print(f'Mixed    : {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(binary, 8))}')
-            print(f'Round Key: {" ".join(hex(int(val, 2))[2:].zfill(2) for val in chunk_string(ki, 8))}')
-            print('\n'.join([' '.join([hex(int(bits, 2))[2:].zfill(2) for bits in col]) for col in cols_to_rows_vise_versa(state_as_cols)]))
-            print()
-    return ''.join([bits for col in state_as_cols for bits in col])
-
-
-class AESKSA:
-    def __init__(self, key: AESKey):
-        self.key = key
-
-    def __call__(self):
-        return AES_KSA(self.key, self.key.rounds)
-
-
-def g(word, i, verbose=False):
-    shifted = shift_left(word, 1)
-    subbed = byte_substitution(shifted)
-    subbed[0] = xor_bits(subbed[0], bin(DATA['rc'][i])[2:].zfill(8))
-    if verbose:
-        print('word   : ', ' '.join([hex(int(w, 2))[2:] for w in word]))
-        print('shifted: ', ' '.join([hex(int(word, 2))[2:] for word in shifted]))
-        print('subbed : ', ' '.join([hex(int(word, 2))[2:] for word in subbed]))
-    return subbed
-
-
-def AES_KSA(key: Key, rounds: int, verbose: bool = False):
-    one = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in key.key[0]])
-    two = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in key.key[1]])
-    three = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in key.key[2]])
-    four = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in key.key[3]])
-    if verbose:
-        print('Round 00:', one, two, three, four)
-    yield key_chunks_to_key(key.key)
-    for i in range(rounds):
-        ged = g(key.key[3], i, verbose=verbose)
-        new_0 = xor_words(tuple(key.key[0]), tuple(ged))
-        new_1 = xor_words(tuple(new_0), tuple(key.key[1]))
-        new_2 = xor_words(tuple(new_1), tuple(key.key[2]))
-        new_3 = xor_words(tuple(new_2), tuple(key.key[3]))
-        key.key = [new_0, new_1, new_2, new_3]
-        if verbose:
-            one = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in new_0])
-            two = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in new_1])
-            three = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in new_2])
-            four = ' '.join([hex(int(word, 2))[2:].zfill(2) for word in new_3])
-            print(f'Round {str(i + 1).zfill(2)}: {one} {two} {three} {four}')
-        yield key_chunks_to_key(key.key)
-
-
-class AESCipher(BlockCipher):
-    def __init__(self, plaintext: str = None, ciphertext: str = None, key: AESKey = None):
-        super().__init__(plaintext, ciphertext, 128, AESKSA(key), AES_encrypt)
 
 
 # TODO: ENC/DEC Done, Finish AES-128, AES-192 and AES-256
@@ -308,14 +87,61 @@ class AESCipher(BlockCipher):
 # print()
 
 
+class State:
+    def __init__(self, data: bytes):
+        self.__columns = [list(data[i:i + 4]) for i in range(0, len(data), 4)]
+
+    def __str__(self) -> str:
+        return '\n'.join([str([f'0x{hex(self.__columns[i][j])[2:].zfill(2).upper()}' for i in range(4)])[1:-1] for j in range(4)]).replace('\'', '').replace(',', '')
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __getitem__(self, index: int) -> list[int]:
+        return self.__columns[index]
+
+    def __setitem__(self, index: int, value: list[int]):
+        self.__columns[index] = value
+
+    def __iter__(self):
+        return iter(self.__columns)
+
+    def __len__(self):
+        return len(self.__columns)
+
+    def shift_rows(self, inverse: bool = False):
+        result = [[0] * len(self[0]) for _ in range(len(self))]
+        for i in range(4):
+            for j in range(4):
+                new_i = ((i + j) if inverse else (i - j)) % 4
+                result[new_i][j] = self[i][j]
+        self.__columns = result
+
+    def xor(self, other) -> None:
+        for i in range(4):
+            for j in range(4):
+                self[i][j] ^= other[i][j]
+
+    def mix_columns(self, inverse: bool = False):
+        matrix = MIX_MATRIX_INV if inverse else MIX_MATRIX
+        result = [[0] * len(self[0]) for _ in range(len(matrix))]
+        for i in range(len(matrix)):
+            for j in range(len(self[0])):
+                for k in range(len(self)):
+                    res = GF_256_multiply(matrix[i][k], self[j][k])
+                    result[j][i] ^= res % 256
+        self.__columns = result
+
+    def to_bytes(self):
+        return bytes([byte for col in self.__columns for byte in col])
+
+
 class AES:
-    def __init__(self, block_size):
-        self.block_size = block_size
-        self.rounds = DATA[self.block_size][0]
-        self.key_size = self.block_size
-        self.key_words = DATA[self.block_size][1]
-        self.max_rcon = DATA[self.block_size][2]
-        self.rcs = DATA['rc']
+    def __init__(self, Nk: int, Nr: int):
+        self.block_size = 128
+        self.key_size = Nk * 32
+        self.Nr = Nr
+        self.Nk = Nk
 
     def _byte_substitution(self, state: list[bytes] | bytes, inverse: bool = False):
         s_box = S_BOX_INV if inverse else S_BOX
@@ -329,57 +155,110 @@ class AES:
     def _g(self, word: bytes, i: int):
         shifted = shift_left(word, 1)
         subbed = list(self._byte_substitution(shifted))
-        xor_rc = subbed[0] ^ DATA['rc'][i]
+        xor_rc = subbed[0] ^ ROUND_CONSTANTS[i]
         rcond = bytes([xor_rc] + subbed[1:])
         return bytes(rcond)
 
-
     def _ksa(self, key: bytes):
+        # Split key bytes into appropriate number of words for key length
+        if len(key) * 8 != self.key_size:
+            raise ValueError(f'Invalid key length {len(key) * 8}. Expected {self.key_size}.')
         words = [key[i:i + 4] for i in range(0, len(key), 4)]
-        yield key[:16]
+
+        # Return 128 bit round keys of initial key until 128 bits of initial key are not left
+        i = 0
+        while len(words) - i >= 4:
+            yield words_to_bytes(words[i:i + 4])
+            i += 4
+
+        # Generate round keys, 1 word at a time, yeilding last 4 words every 4 words generated
         temp = words[-1]
-        round_key = words[4:]
-        round_number = 0
-        for i in range(self.max_rcon + 1):
-            print(f'Round {i + 1}:')
-            for j in range(self.key_words):
-                temp = words[-1]
-                if j == 0:
-                    temp = self._g(temp, i)
-                print('\tBEFORE  :', [hex(byte)[2:].zfill(2) for byte in temp])
-                print('\tXORED W :', [hex(byte)[2:].zfill(2) for byte in words[j + (i * self.key_words)]])
-                temp = xor_words(words[j + (i * self.key_words)], temp)
-                print('\tAFTER   :', [hex(byte)[2:].zfill(2) for byte in temp])
-                print()
-                words.append(temp)
-                round_key.append(temp)
-                if len(round_key) == 4:
-                    yield words_to_bytes(round_key)
-                    round_key = []
-                    round_number += 1
-                if round_number > self.rounds:
-                    break
+        for i in range(self.Nk, self.Nr * 4 + 4):
+            temp = words[-1]
+            if i % self.Nk == 0:
+                temp = self._g(temp, (i // self.Nk) - 1)
+            elif len(words) % 4 == 0 and self.key_size == 256:
+                temp = self._byte_substitution(temp)
+            temp = xor_words(words[i - self.Nk], temp)
+            words.append(temp)
+            if (i + 1) % 4 == 0:
+                yield words_to_bytes(words[-4:])
 
+    def _encrypt_block(self, block: bytes, key: bytes) -> bytes:
+        keys = [State(round_key) for round_key in self._ksa(key)]
+        state = State(block)
 
-    def encrypt(plain_text: bytes, key: bytes):
-        pass
+        # First Round
+        state.xor(keys[0])
 
-    def decrypt(cipher_text: bytes, key: bytes):
-        pass
+        # Rest of The Rounds Except Last
+        for i in range(1, self.Nr):
+            state = State(self._byte_substitution(state)) # Substitute Bytes
+            state.shift_rows() # Shift Rows
+            state.mix_columns() # Mix Columns
+            state.xor(keys[i]) # Add Round Key
+
+        # Last Round
+        state = State(self._byte_substitution(state)) # Substitute Bytes
+        state.shift_rows() # Shift Rows
+        state.xor(keys[-1]) # Add Round Key
+        return state.to_bytes()
+
+    def _decrypt_block(self, block: bytes, key: bytes) -> bytes:
+        keys = [State(round_key) for round_key in self._ksa(key)][::-1]
+        state = State(block)
+
+        # First Round
+        state.xor(keys[0])
+
+        # Rest of The Rounds Except Last
+        for i in range(1, self.Nr):
+            state.shift_rows(inverse=True) # Inverse Shift Rows
+            state = State(self._byte_substitution(state, inverse=True)) # Inverse Substitute Bytes
+            state.xor(keys[i]) # Add Round Key
+            state.mix_columns(inverse=True) # Inverse Mix Columns
+
+        # Last Round
+        state.shift_rows(inverse=True) # Inverse Shift Rows
+        state = State(self._byte_substitution(state, inverse=True)) # Inverse Substitute Bytes
+        state.xor(keys[-1]) # Add Round Key
+        return state.to_bytes()
 
 
 test_key_128 = bytes([0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c])
 test_128 = AES(128)
-for round_num, round_key in enumerate(list(test_128._ksa(test_key_128))):
-    print(f'Round {round_num}:', '', ' '.join([hex(byte)[2:].zfill(2) for byte in bytes(round_key)]))
-print('\n')
+plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
+cipher_text = test_128._encrypt_block(plain_text_orig, test_key_128)
+plain_text_dec = test_128._decrypt_block(cipher_text, test_key_128)
+print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
+print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
+print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
+print()
+print('Match?: ', plain_text_orig == plain_text_dec)
+input()
+
 test_key_192 = bytes([0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b])
 test_192 = AES(192)
-for round_num, round_key in enumerate(list(test_192._ksa(test_key_192))):
-    print(f'Round {round_num}:', '', ' '.join([hex(byte)[2:].zfill(2) for byte in bytes(round_key)]))
-print('\n')
-# test_key_256 = bytes([0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4])
-# test_256 = AES(256)
-# for round_num, round_key in enumerate(list(test_256._ksa(test_key_256))):
-#     print(f'Round {round_num}:', '', ' '.join([hex(byte)[2:].zfill(2) for byte in bytes(round_key)]))
-# TODO: KSA for 128/192 good but MF 256 adds only substitution wtf.
+plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
+cipher_text = test_192._encrypt_block(plain_text_orig, test_key_192)
+plain_text_dec = test_192._decrypt_block(cipher_text, test_key_192)
+print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
+print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
+print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
+print()
+print('Match?: ', plain_text_orig == plain_text_dec)
+input()
+
+test_key_256 = bytes([0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4])
+test_256 = AES(256)
+plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
+cipher_text = test_256._encrypt_block(plain_text_orig, test_key_256)
+plain_text_dec = test_256._decrypt_block(cipher_text, test_key_256)
+print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
+print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
+print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
+print()
+print('Match?: ', plain_text_orig == plain_text_dec)
+input()
+
+# TODO: Implement different modes of opperation. ECB, CBC, CFB, OFB, CTR, GCM, etc.

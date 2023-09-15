@@ -1,7 +1,4 @@
-import sympy as sp
-import numpy as np
-
-from utils import shift_left, GF_256_multiply, xor_words, words_to_bytes
+from functools import cache
 
 MIX_MATRIX = [
     [0x02, 0x03, 0x01, 0x01],
@@ -55,33 +52,35 @@ S_BOX_INV = [
     [0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d]
 ]
 
-
-# Key length to (rounds, key_words, max_rcon)
-DATA = {
-    128: (10, 4),
-    192: (12, 6),
-    256: (14, 8),
-}
-
 ROUND_CONSTANTS = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
 
 IR_POLY = 0x11b
 
 
-# TODO: ENC/DEC Done, Finish AES-128, AES-192 and AES-256
+@cache
+def xor_words(a: bytes, b: bytes) -> bytes:
+    return bytes([a[i] ^ b[i] for i in range(len(a))])
 
-# test_key_128 = [[0x2b, 0x7e, 0x15, 0x16], [0x28, 0xae, 0xd2, 0xa6], [0xab, 0xf7, 0x15, 0x88], [0x09, 0xcf, 0x4f, 0x3c]]
-# test_key_128 = ''.join([''.join([bin(val)[2:].zfill(8) for val in row]) for row in test_key_128])
-# list(AES_KSA(AESKey(test_key_128, is_string=False), 10, verbose=True))
-# print()
-# test_key_192 = [[0x8e, 0x73, 0xb0, 0xf7], [0xda, 0x0e, 0x64, 0x52], [0xc8, 0x10, 0xf3, 0x2b], [0x80, 0x90, 0x79, 0xe5], [0x62, 0xf8, 0xea, 0xd2], [0x52, 0x2c, 0x6b, 0x7b]]
-# test_key_192 = ''.join([''.join([bin(val)[2:].zfill(8) for val in row]) for row in test_key_192])
-# list(AES_KSA(AESKey(test_key_192, is_string=False), 12, verbose=True))
-# print()
-# test_key_256 = [[], [], [], [], [], [], [], []]
-# test_key_256 = ''.join([''.join([bin(val)[2:].zfill(8) for val in row]) for row in test_key_128])
-# list(AES_KSA(AESKey(test_key_128, is_string=False), 14, verbose=True))
-# print()
+
+def words_to_bytes(words: list[bytes]) -> bytes:
+    return bytes([byte for word in words for byte in word])
+
+
+@cache
+def GF_256_multiply(a: int, b: int) -> int:
+    '''
+    Handles multiplication in GF(2^8)
+    '''
+    p = 0
+    for _ in range(8):
+        if b & 1:  # Rightmost bit of b is set
+            p ^= a  # Exclusive OR (polynomial addition)
+        carry = a & 0x80  # Leftmost bit of a
+        a <<= 1  # Shift a one bit to the left
+        if carry:  # If carry had a value of one
+            a ^= 0x1b  # Exclusive OR with 0x1b
+        b >>= 1  # Shift b one bit to the right
+    return p
 
 
 class State:
@@ -103,7 +102,7 @@ class State:
     def __iter__(self):
         return iter(self.__columns)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.__columns)
 
     def shift_rows(self, inverse: bool = False):
@@ -129,8 +128,8 @@ class State:
                     result[j][i] ^= res % 256
         self.__columns = result
 
-    def to_bytes(self):
-        return bytes([byte for col in self.__columns for byte in col])
+    def to_bytes(self) -> bytes:
+        return words_to_bytes(self.__columns)
 
 
 class AES:
@@ -140,7 +139,7 @@ class AES:
         self.Nr = Nr
         self.Nk = Nk
 
-    def _byte_substitution(self, state: list[bytes] | bytes, inverse: bool = False):
+    def _byte_substitution(self, state: list[bytes] | bytes, inverse: bool = False) -> bytes:
         s_box = S_BOX_INV if inverse else S_BOX
         poly_bytes = [b for row in state for b in row] if isinstance(state[0], list) else [s for s in state]
         for i, byte in enumerate(poly_bytes):
@@ -149,8 +148,8 @@ class AES:
             poly_bytes[i] = s_box[row][col]
         return bytes(poly_bytes)
 
-    def _g(self, word: bytes, i: int):
-        shifted = shift_left(word, 1)
+    def _g(self, word: bytes, i: int) -> bytes:
+        shifted = word[1:] + word[:1]
         subbed = list(self._byte_substitution(shifted))
         xor_rc = subbed[0] ^ ROUND_CONSTANTS[i]
         rcond = bytes([xor_rc] + subbed[1:])
@@ -220,42 +219,5 @@ class AES:
         state = State(self._byte_substitution(state, inverse=True)) # Inverse Substitute Bytes
         state.xor(keys[-1]) # Add Round Key
         return state.to_bytes()
-
-
-test_key_128 = bytes([0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c])
-test_128 = AES(4, 10)
-plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
-cipher_text = test_128._encrypt_block(plain_text_orig, test_key_128)
-plain_text_dec = test_128._decrypt_block(cipher_text, test_key_128)
-print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
-print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
-print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
-print()
-print('Match?: ', plain_text_orig == plain_text_dec)
-input()
-
-test_key_192 = bytes([0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b])
-test_192 = AES(6, 12)
-plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
-cipher_text = test_192._encrypt_block(plain_text_orig, test_key_192)
-plain_text_dec = test_192._decrypt_block(cipher_text, test_key_192)
-print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
-print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
-print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
-print()
-print('Match?: ', plain_text_orig == plain_text_dec)
-input()
-
-test_key_256 = bytes([0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4])
-test_256 = AES(8, 14)
-plain_text_orig = bytes([0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34])
-cipher_text = test_256._encrypt_block(plain_text_orig, test_key_256)
-plain_text_dec = test_256._decrypt_block(cipher_text, test_key_256)
-print('Plain Text: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_orig]))
-print('Cipher Text:', ' '.join([hex(byte)[2:].zfill(2) for byte in cipher_text]))
-print('Decrypted: ', ' '.join([hex(byte)[2:].zfill(2) for byte in plain_text_dec]))
-print()
-print('Match?: ', plain_text_orig == plain_text_dec)
-input()
 
 # TODO: Implement different modes of opperation. ECB, CBC, CFB, OFB, CTR, GCM, etc.

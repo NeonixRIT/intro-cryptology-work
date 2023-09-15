@@ -1,6 +1,8 @@
 import math
+
+from random import SystemRandom
 from typing import Callable
-from utils import big_endian_to_int
+from utils import big_endian_to_int, int_to_big_endian_bytes
 """
 Algorithm Parameterss and Other Variables:
 A               -    A state array.
@@ -789,6 +791,38 @@ def sha3_512(M: bytes) -> int:
     return sha3(M, 512)
 
 
+class PRNG:
+    def __init__(self, underlying_hash_function):
+        self.__hash_func = underlying_hash_function
+        self.__true_rng = SystemRandom()
+
+    def random_bytes(self, n: int, seed: bytes = None) -> bytes:
+        '''
+        n: number of bytes to generate
+        Generate and return n pseudo-random bytes
+        '''
+        if n < 0:
+            raise ValueError('n must be non-negative')
+        if n == 0:
+            return b''
+        seed = seed if seed is not None else self.__true_rng.randbytes(32)
+        d = n * 8 + (8 - n * 8 % 8)
+        return int_to_big_endian_bytes(self.__hash_func(seed, d))[:n]
+
+    def random_bits(self, n: int, seed: bytes = None) -> str:
+        '''
+        n: number of bits to generate
+        Generate and return a pseudo-random bit string of length n
+        '''
+        seed = seed if seed is not None else self.__true_rng.randbytes(32)
+        d = n + (8 - n % 8)
+        return bin(self.__hash_func(seed, d)).zfill(d)[2:n + 2]
+
+
+prng_shake128 = PRNG(shake128)
+prng_shake256 = PRNG(shake256)
+
+
 def main():
     from hashlib import sha3_224, sha3_256, sha3_384, sha3_512, shake_128, shake_256
     light_red = '\033[91m'
@@ -821,7 +855,7 @@ def main():
         for message in ['The quick brown fox jumps over the lazy dog', 'Some other dumb sentence that I made up thats really long because I want multiple runs in the function just to make sure that it works well', 'abc', '']:
             print(f'{light_yellow}Message: `{message}`{white}')
             for out_len, my_func, test_func in test_vector:
-                print(f'\tSHA 3 {out_len} {out_len * i}:')
+                print(f'\tSHAKE {out_len} {out_len * i}:')
                 inp = message.encode()
                 raw_actual = hex(my_func(inp, out_len * i))[2:]
                 raw_expected = test_func(inp).hexdigest(out_len // 8 * i)

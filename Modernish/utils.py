@@ -100,6 +100,7 @@ def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
     '''
     Generates random bits using a Non-Linear Shift Register
     TODO: optimize each round to use bitwise operations instead of list operations
+    Likely not secure if primes are known?
     '''
     return_bits = bits_requested
     bits_requested = max(bits_requested, 128)
@@ -140,7 +141,7 @@ def GF_256_multiply(a, b):
         carry = a & 0x80  # Leftmost bit of a
         a <<= 1  # Shift a one bit to the left
         if carry:  # If carry had a value of one
-            a ^= 0x1b  # Exclusive OR with 0x1b    
+            a ^= 0x1b  # Exclusive OR with 0x1b
         b >>= 1  # Shift b one bit to the right
     return p
 

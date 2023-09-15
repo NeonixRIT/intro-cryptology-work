@@ -136,7 +136,7 @@ CONST_DICT = {
 }
 
 
-def sha_2_f(Mi, IV, domain):
+def sha_2_f(Mi: bytes, IV: tuple[int], domain: SHA2Constant):
     theta0 = domain.theta_0
     theta1 = domain.theta_1
     sig0 = domain.sig_0
@@ -190,7 +190,7 @@ def sha_2_pad(message: bytes, domain: SHA2Constant) -> str:
     return L, K, message
 
 
-def sha2(message: bytes, out_len: int = 256, verbose: bool = False) -> int:
+def sha2(message: bytes, out_len: int = 256) -> int:
     """
     Returns the SHA-2 hash of the message.
 
@@ -204,10 +204,6 @@ def sha2(message: bytes, out_len: int = 256, verbose: bool = False) -> int:
     Hi = domain.iv
     for i, Mi in enumerate(Mis):
         Hi = sha_2_f(Mi, Hi, domain)
-        if verbose:
-            print(f'\t\tH_{i} -> {hex(int("".join([bin(num)[2:].zfill(domain.word_size) for num in Hi]), 2))}')
-    if verbose:
-        print(f'\t\tH_N -> {hex(int("".join([bin(num)[2:].zfill(domain.word_size) for num in Hi]), 2))}')
     return int(''.join([bin(num)[2:].zfill(domain.word_size) for num in Hi[:domain.hi_len]]), 2)
 
 

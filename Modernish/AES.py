@@ -80,7 +80,7 @@ def GF_256_multiply(a: int, b: int) -> int:
         if carry:  # If carry had a value of one
             a ^= 0x1b  # Exclusive OR with 0x1b
         b >>= 1  # Shift b one bit to the right
-    return p
+    return p % 256
 
 
 class State:
@@ -124,8 +124,7 @@ class State:
         for i in range(len(matrix)):
             for j in range(len(self[0])):
                 for k in range(len(self)):
-                    res = GF_256_multiply(matrix[i][k], self[j][k])
-                    result[j][i] ^= res % 256
+                    result[j][i] ^= GF_256_multiply(matrix[i][k], self[j][k])
         self.__columns = result
 
     def to_bytes(self) -> bytes:

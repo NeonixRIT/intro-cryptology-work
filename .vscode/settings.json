@@ -1,3 +1,7 @@
 {
-    "austin.interval": 100
+    "python.testing.pytestArgs": [
+        "Modernish"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

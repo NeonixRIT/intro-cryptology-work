@@ -1,4 +1,4 @@
-from AES import AES, State
+from AES import AES, State, xor_words, GF_256_multiply, words_to_bytes
 
 # https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=901427
 
@@ -49,15 +49,23 @@ AES_256_TEST_KEY = bytes([
 
 
 def test_xor_words():
-    pass
+    a = b'\x00\x11\x22\x33'
+    b = b'\x44\x55\x66\x77'
+    expected_result = b'\x44\x44\x44\x44'
+    assert xor_words(a, b) == expected_result
 
 
 def test_words_to_bytes():
-    pass
+    words = [b'\x00\x11\x22\x33', b'\x44\x55\x66\x77']
+    expected_result = b'\x00\x11\x22\x33\x44\x55\x66\x77'
+    assert words_to_bytes(words) == expected_result
 
 
 def test_gf_256_mul():
-    pass
+    a = 0x57
+    b = 0x83
+    expected_result = 0xc1
+    assert GF_256_multiply(a, b) == expected_result
 
 
 def test_128_byte_sub():

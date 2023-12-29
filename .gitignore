@@ -5,3 +5,4 @@ __py*
 secret*
 Homework*
 *_cache*
+.env

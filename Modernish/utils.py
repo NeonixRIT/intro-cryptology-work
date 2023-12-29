@@ -832,7 +832,7 @@ def eulers_phi(n: int) -> int:
         return n - 1
 
     phi = n
-    for p in prime_factors_brents(n):
+    for p in set(prime_factors_brents(n)):
         phi *= (1 - (1 / p))
 
     return int(phi)

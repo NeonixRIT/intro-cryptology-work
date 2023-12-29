@@ -793,6 +793,12 @@ def sha3_512(M: bytes) -> int:
 
 class PRNG:
     def __init__(self, underlying_hash_function):
+        '''
+        underlying_hash_function: hash function to use for PRNG
+            must have the signature hash_function(bytes, int) -> bytes
+                the first argument is the seed
+                the second argument is the number of bits to return
+        '''
         self.__hash_func = underlying_hash_function
         self.__true_rng = SystemRandom()
 

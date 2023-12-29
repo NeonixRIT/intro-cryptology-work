@@ -141,7 +141,7 @@ def GF_256_multiply(a, b):
         carry = a & 0x80  # Leftmost bit of a
         a <<= 1  # Shift a one bit to the left
         if carry:  # If carry had a value of one
-            a ^= 0x1b  # Exclusive OR with 0x1b    
+            a ^= 0x1b  # Exclusive OR with 0x1b
         b >>= 1  # Shift b one bit to the right
     return p
 
@@ -832,7 +832,7 @@ def eulers_phi(n: int) -> int:
         return n - 1
 
     phi = n
-    for p in prime_factors_brents(n):
+    for p in set(prime_factors_brents(n)):
         phi *= (1 - (1 / p))
 
     return int(phi)

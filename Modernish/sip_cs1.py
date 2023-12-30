@@ -12,8 +12,8 @@ References:
         - Implementation of SipHash-2-4-64 on a Python level
         - Took ideas from this to solve some issues with how python handles integers.
 
-Python's hash function is a variant of the SipHash-C-D-O
-Where C, D, and O are parameters that can be adjusted to change the of the algorithm.
+Python's hash function is a variant of the SipHash-C-D-O algorithm
+Where C, D, and O are parameters that can be adjusted to change how the algorithm works.
 Python uses SipHash-2-4-64. This means:
  - 2 `compression` rounds
  - 4 `finalization` rounds

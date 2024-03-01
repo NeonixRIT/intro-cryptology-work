@@ -163,7 +163,7 @@ def read_file_to_words(path):
     return res
 
 
-EN_DICTIONARY = read_file_to_words('./data/words_alpha.txt')
+EN_DICTIONARY = None  # read_file_to_words('./data/words_alpha.txt')
 
 
 def read_all_to_string(path):
@@ -1202,7 +1202,7 @@ def rsa_decrypt_base(cipher: str | int, key: tuple[int, int, int], ret_string: b
     return number_to_string(total, char_size)
 
 
-def get_primitive_roots(p: int) -> int:
+def get_primitive_roots(p: int) -> list:
     if p == 2:
         return 1
     roots = []

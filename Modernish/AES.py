@@ -57,7 +57,7 @@ ROUND_CONSTANTS = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
 IR_POLY = 0x11b
 
 
-@cache
+# @cache
 def xor_words(a: bytes, b: bytes) -> bytes:
     return bytes([a[i] ^ b[i] for i in range(len(a))])
 
@@ -66,7 +66,7 @@ def words_to_bytes(words: list[bytes]) -> bytes:
     return bytes([byte for word in words for byte in word])
 
 
-@cache
+# @cache
 def GF_256_multiply(a: int, b: int) -> int:
     '''
     Handles multiplication in GF(2^8)
@@ -179,7 +179,7 @@ class AES:
             if (i + 1) % 4 == 0:
                 yield words_to_bytes(words[-4:])
 
-    def _encrypt_block(self, block: bytes, key: bytes) -> bytes:
+    def encrypt_block(self, block: bytes, key: bytes) -> bytes:
         keys = [State(round_key) for round_key in self._ksa(key)]
         state = State(block)
 
@@ -199,7 +199,7 @@ class AES:
         state.xor(keys[-1]) # Add Round Key
         return state.to_bytes()
 
-    def _decrypt_block(self, block: bytes, key: bytes) -> bytes:
+    def decrypt_block(self, block: bytes, key: bytes) -> bytes:
         keys = [State(round_key) for round_key in self._ksa(key)][::-1]
         state = State(block)
 

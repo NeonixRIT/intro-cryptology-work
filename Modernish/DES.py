@@ -1,7 +1,4 @@
 # Improved DES implementation from Old/DES.py
-from functools import cache
-
-@cache
 def bytes_to_int(b: bytes) -> int:
     int_value = 0
     for i in range(len(b)):
@@ -9,20 +6,18 @@ def bytes_to_int(b: bytes) -> int:
     return int_value
 
 
-@cache
-def int_to_bytes(number: int) -> bytes:
+def int_to_bytes(number: int, size: int) -> bytes:
     num_bytes = (number.bit_length() + 7) // 8
     little_endian_bytes = bytearray(num_bytes)
     for i in range(num_bytes):
         little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
-    return bytes(little_endian_bytes)[::-1]
+    return (bytes(little_endian_bytes) + (b'\x00' * (size - num_bytes)))[::-1]
 
 
-@cache
 def permute(inp: bytes | int, permutation: tuple[int], base: int = 1, return_bin=False, zfill_len=None) -> int | str:
-    '''
+    """
     Permute bits in an integer.
-    '''
+    """
     if isinstance(inp, bytes):
         inp = bytes_to_int(inp)
     if zfill_len is None:
@@ -32,7 +27,6 @@ def permute(inp: bytes | int, permutation: tuple[int], base: int = 1, return_bin
     return res if return_bin else int(res, 2)
 
 
-@cache
 def chunk_bits(data: bytes, chunk_size: int) -> list[bytes]:
     return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
 
@@ -187,82 +181,110 @@ P = tuple([16, 7, 20, 21,
 # function `f`, cipher function, f(R, Kn)
 # function `KS`, key schedule, KS(n, KEY)
 
+# print(permute(b'\x11\x88\x00\x00\x00\x00\x00\x00', E, return_bin=True, zfill_len=48))
+# exit()
+
 class FeistelSystem:
     def __init__(self, block_size: int, n: int, f, ks):
         if block_size % 8 != 0:
             raise ValueError('Block size must be multiple of 8.')
+        self.block_size = block_size
         self.half_size = block_size // 2
+        self.block_size_bytes = block_size // 8
+        self.half_size_bytes = self.block_size_bytes // 2
         self.n = n
         self.f = f
         self.ks = ks
 
-    def _round(self, l_half: int, r_half: int, key_n: bytes) -> int:
+    def _round(self, l_half: int, r_half: int, key_n: bytes) -> tuple[int, int]:
         f_res = self.f(r_half, key_n)
+        # print('Permute'.ljust(20), bin(f_res)[2:].zfill(32), sep=':  ')
+        # print('Left'.ljust(20), bin(l_half)[2:].zfill(32), sep=':  ')
+        # print('XOR left'.ljust(20), bin(r_half)[2:].zfill(32) + bin(l_half ^ f_res)[2:].zfill(32), sep=':  ')
+        # input()
         return r_half, l_half ^ f_res
 
     def _process_block(self, block: bytes, key: bytes, encrypting: bool):
-        l_half, r_half = bytes_to_int(block[:self.half_size // 8]), bytes_to_int(block[self.half_size // 8:])
-
+        half_block_size = len(block) // 2
+        l_half, r_half = bytes_to_int(b'\x00' + block[:half_block_size]), bytes_to_int(block[half_block_size:])
         range_func = range if encrypting else lambda x: range(x - 1, -1, -1)
         for i in range_func(self.n):
+            # print(f'Round {i}')
             key_n = self.ks(i, key)
+            # print('Key'.ljust(20), bin(bytes_to_int(key_n))[2:].zfill(48), sep=':  ')
             l_half, r_half = self._round(l_half, r_half, key_n)
-        return int_to_bytes(r_half) + int_to_bytes(l_half)
+        return int_to_bytes(r_half, self.half_size_bytes) + int_to_bytes(l_half, self.half_size_bytes)
 
-    def _encrypt_block(self, block: bytes, key: bytes):
+    def encrypt_block(self, block: bytes, key: bytes):
         return self._process_block(block, key, True)
 
-    def _decrypt_block(self, block: bytes, key: bytes):
+    def decrypt_block(self, block: bytes, key: bytes):
         return self._process_block(block, key, False)
 
 
 class DES(FeistelSystem):
     def __init__(self, block_size: int = 64, n: int = 16):
-        super().__init__(block_size, n, self.__f, self.__KS)
+        super().__init__(block_size, n, self._f, self._KS)
         self.__round_key_size_bits = 48
         self.__round_key_size_bytes = 6
         self.__key_half_size = 28
         self.i = 0
 
-    def __f(self, R: int, key_n: bytes) -> int:
+    def _f(self, R: int, key_n: bytes) -> int:
         expanded_R = permute(R, E)
         expanded_R_xor_K = bin(expanded_R ^ bytes_to_int(key_n))[2:].zfill(self.__round_key_size_bits)
         s_boxes = chunk_bits(expanded_R_xor_K, self.__round_key_size_bytes)
-        res = ''.join([bin(S_TABLES[i][int(s_box[0] + s_box[-1], 2)][int(s_box[1:-1], 2)])[2:].zfill(4) for i, s_box in enumerate(s_boxes)])
+        res = ''.join(
+            [
+                bin(S_TABLES[i][int(s_box[0] + s_box[-1], 2)][int(s_box[1:-1], 2)])[2:].zfill(4)
+                for i, s_box in enumerate(s_boxes)
+            ]
+        )
+        # print('Substitute'.ljust(20), res, sep=':  ')
         return permute(int(res, 2), P)
 
-    def __KS(self, n: int, key: bytes) -> bytes:
+    def _KS(self, n: int, key: bytes) -> bytes:
         permuted_key = permute(key, PC_1, return_bin=True, zfill_len=64)
         c, d = chunk_bits(permuted_key, self.__key_half_size)
         for i in range(n + 1):
             shift_num = ROUND_TO_SHIFT[i]
             c, d = rotl(c, shift_num), rotl(d, shift_num)
         key_n = permute(int(c + d, 2), PC_2)
-        return int_to_bytes(key_n).zfill(self.__round_key_size_bytes)
+        return int_to_bytes(key_n, self.__round_key_size_bytes)
 
     def _process_block(self, block: bytes, key: bytes, encrypting: bool):
-        if len(block) != self.half_size // 4:
+        if len(block) != self.block_size_bytes:
             raise ValueError('Invalid Block Size')
         ip_block = permute(block, IP)
-        fi_sys_block = super()._process_block(int_to_bytes(ip_block), key, encrypting)
-        final_block = int_to_bytes(permute(fi_sys_block, IP_1)).zfill(self.half_size // 4)
+        # print('Initial permutation'.ljust(20), bin(ip_block)[2:].zfill(64), sep=':  ')
+        fi_sys_block = super()._process_block(int_to_bytes(ip_block, self.block_size_bytes), key, encrypting)
+        final_block = int_to_bytes(permute(fi_sys_block, IP_1), self.block_size_bytes)
         return final_block
 
 
 def main():
-    plaintext = b'\x11\x22\x33\x44\x55\x66\x77\x88'
-    key = b'\x75\x28\x78\x39\x74\x93\xCB\x70'
-    expected_ciphertext = b'\xB5\x21\x9E\xE8\x1A\xA7\x49\x9D'
+    test_vectors = [
+        [b'\x11\x22\x33\x44\x55\x66\x77\x88', b'\xB5\x21\x9E\xE8\x1A\xA7\x49\x9D', b'\x75\x28\x78\x39\x74\x93\xCB\x70'],
+        [b'\x11\x80\x00\x00\x00\x00\x00\x00', b'\xCE\xEB\xDD\x05\x5D\x68\xF7\xAE', b'\x75\x28\x78\x39\x74\x93\xCB\x70'],
+        [b'\x7B\x5F\xD2\x11\x72\x48\x6F\xE5', b'\x00\xC5\x8D\x7F\x44\xFD\x56\x87', b'\x1F\xE6\x48\x3C\x9A\xA1\xDC\x68']
+    ]
 
     cipher = DES()
-    print('Plaintext  (inp) :'.ljust(20), plaintext.hex().upper())
-    print('Key        (inp) :'.ljust(20), key.hex().upper())
-    print()
-    print('Ciphertext (exp) :'.ljust(20), expected_ciphertext.hex().upper())
-    actual_ciphertext = cipher._encrypt_block(plaintext, key)
-    print('Ciphertext (act) :'.ljust(20), actual_ciphertext.hex().upper())
-    print('Plaintext  (exp) :'.ljust(20), plaintext.hex().upper())
-    print('Plaintext  (act) :'.ljust(20), cipher._decrypt_block(actual_ciphertext, key).hex().upper())
+    for plaintext, expected_ciphertext, key in test_vectors:
+        print('-' * 37)
+        print('Plaintext  (inp)  :'.ljust(20), plaintext.hex().upper())
+        print('Key        (inp)  :'.ljust(20), key.hex().upper())
+        print()
+        print('Ciphertext (exp)  :'.ljust(20), expected_ciphertext.hex().upper())
+        actual_ciphertext = cipher.encrypt_block(plaintext, key)
+        actual_plaintext = cipher.decrypt_block(actual_ciphertext, key)
+        print('Ciphertext (act)  :'.ljust(20), actual_ciphertext.hex().upper())
+        print('Plaintext  (exp)  :'.ljust(20), plaintext.hex().upper())
+        print('Plaintext  (act)  :'.ljust(20), actual_plaintext.hex().upper())
+        assert actual_ciphertext == expected_ciphertext
+        assert actual_plaintext == plaintext
+        print('-' * 37)
+        print('\n')
 
 
 if __name__ == '__main__':

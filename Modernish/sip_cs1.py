@@ -12,8 +12,8 @@ References:
         - Implementation of SipHash-2-4-64 on a Python level
         - Took ideas from this to solve some issues with how python handles integers.
 
-Python's hash function is a variant of the SipHash-C-D-O
-Where C, D, and O are parameters that can be adjusted to change the of the algorithm.
+Python's hash function for non-integer types is a variant of SipHash-C-D-O
+Where C, D, and O are parameters that can be adjusted to change the output of the algorithm.
 Python uses SipHash-2-4-64. This means:
  - 2 `compression` rounds
  - 4 `finalization` rounds
@@ -28,7 +28,7 @@ this means each integer can range from 0 to 255, inclusively.
 This is a universal representation for data of any type.
 
 In python, a byte is in the format \xFF where FF can be replaced with any integer 0-255 in base 16.
-a byte string is a string of bytes and denoted by a `b` infront of quotes: b''.
+a byte string is a string of bytes and denoted by a `b` in front of quotes: b''.
 
 The goal here is to first implement SipHash-C-D-O so that implementing
 SipHash with any value of C, D, and O is trivial.
@@ -91,13 +91,18 @@ def chunk_data(data: bytes, chunk_size: int) -> list[bytes]:
 
 
 def bytes_to_int(b: bytes) -> int:
-    '''
-    Convert bytes to integer
-    '''
     int_value = 0
     for i in range(len(b)):
         int_value |= (b[i] << (i * 8))
     return int_value
+
+
+def int_to_bytes(number: int) -> bytes:
+    num_bytes = (number.bit_length() + 7) // 8
+    little_endian_bytes = bytearray(num_bytes)
+    for i in range(num_bytes):
+        little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
+    return bytes(little_endian_bytes)
 
 
 def sip_round(v0, v1, v2, v3, bit_limit: int = 64):
@@ -184,19 +189,12 @@ def siphashcdo(c: int, d: int, o: int, data: bytes, k: bytes) -> int:
     if len(k) != 16:
         raise ValueError(f'Key length of `{len(k)}` is not supported. It must be 128 bits/16 bytes long.')
 
-    His = [] # list of resulting hashes to be concatenated
-    hashes = o // 64
-    seeds = [k]
-    # Calculate seeds to be used for each over-arching round.
-    # List of round seeds is determined by initial seed meaning that
-    # the same initial seed will always produce the same round seeds.
-    for i in range(hashes - 1):
-        seeds.append(predictable_random_bytes(16, seeds[-1]))
-
     # Calculate hash for each over-arching round.
     # All this does is hash the same data with a different seed.
+    His = [] # list of resulting hashes to be concatenated
+    hashes = o // 64
     for i in range(hashes):
-        v0, v1, v2, v3 = initialize_state(seeds[i]) # initial state defined by hash 4 vectors, 8 bytes long each.
+        v0, v1, v2, v3 = initialize_state(k) # initial state defined by hash 4 vectors, 8 bytes long each.
         padded_message = pad_64_blocks(data) # pad message to multiple of 64 bits
         blocks = chunk_data(padded_message, 8) # split message into 64 bit block
 
@@ -213,7 +211,12 @@ def siphashcdo(c: int, d: int, o: int, data: bytes, k: bytes) -> int:
             v0, v1, v2, v3 = sip_round(v0, v1, v2, v3)
 
         # A 64 bit hash for any data is the xor result of the 4 vectors at the end of rounds.
-        His.append(v0 ^ v1 ^ v2 ^ v3)
+        hi = v0 ^ v1 ^ v2 ^ v3
+        His.append(hi)
+
+        # If necessary, calculate the next seed based on the hash output and previous seed.
+        if len(His) < hashes:
+            k = predictable_random_bytes(16, k + int_to_bytes(hi))
 
     # concatenate hashes
     H = His[0]

@@ -1,4 +1,4 @@
-from utils import rotl, chunk_string, little_endian_to_int
+from utils import rotl, chunk_string, little_endian_to_int, int_to_little_endian_bytes
 from keccak import prng_shake128
 
 
@@ -96,14 +96,9 @@ def siphashcdo(c: int, d: int, o: int, message: bytes, k: bytes) -> int:
 
     His = [] # list of resulting hashes to be concatenated
     hashes = o // 64
-    keys = [k]
-    # securely calculate subsequent round keys based on the initial key if requested output > 64 bits
-    for i in range(hashes - 1):
-        keys.append(prng_shake128.random_bytes(16, keys[-1]))
-
 
     for i in range(hashes):
-        v0, v1, v2, v3 = initialize_state(keys[i]) # initial state defined by hash specification
+        v0, v1, v2, v3 = initialize_state(k) # initial state defined by hash specification
         padded_message = pad_64_blocks(message) # pad message to multiple of 64 bits
         blocks = chunk_string(padded_message, 8) # split message into 64 bit chunks
         for chunk in blocks:
@@ -117,7 +112,11 @@ def siphashcdo(c: int, d: int, o: int, message: bytes, k: bytes) -> int:
         for _ in range(d): # finalization rounds
             v0, v1, v2, v3 = sip_round(v0, v1, v2, v3)
 
-        His.append(v0 ^ v1 ^ v2 ^ v3)
+        hi = v0 ^ v1 ^ v2 ^ v3
+        His.append(hi)
+        # Calculate next key based on hash output and previous key
+        if len(His) < hashes:
+            k = prng_shake128.random_bytes(16, k + int_to_little_endian_bytes(hi))
 
     # concatenate hashes
     H = His[0]

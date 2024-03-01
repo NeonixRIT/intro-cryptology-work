@@ -75,7 +75,7 @@ def predictable_random_bytes(num_bytes: int, seed: bytes) -> bytes:
     Generate a sequence of random bytes that are deterministic based on the seed.
     The same seed should produce the same bytes.
 
-    This function is not secure. A secure implementation would use something like a variation of SHA 2 or 3.
+    This function is not secure. A secure implementation would use something like a variation of SHA 3.
     '''
     random.seed(seed)
     result = random.randbytes(num_bytes)
@@ -113,7 +113,7 @@ def sip_round(v0, v1, v2, v3, bit_limit: int = 64):
 
     `andy` is to correct for how python handles integers.
 
-    13, 16, 32, 17, 21, 31 are fix values defined by hash specification.
+    13, 16, 32, 17, 21, 31 are fixed values defined by the algorithm.
     '''
     andy = 2 ** bit_limit - 1
 

@@ -393,6 +393,8 @@ def python_hash_pointer(pointer: int):
 
 def python_hash_bytes(data: bytes):
     # TODO: change alg based on a config
+    if len(data) == 0:
+        return 0
     if len(data) < CUTOFF:  # use separate function for small strings
         return djbx33a(data, U[16:])
     else:
@@ -470,7 +472,10 @@ def python_hash(data: Any) -> int:
         __pyhash__ must return a representation of the object in a base hashable type
         This should be the same state used in an object's __eq__
 
-    Does not currently handle slice, range, or memoryview objects like python does
+    Does not currently handle slice, range, or memoryview objects
+        - range hash function creates a tuple of 3 (length, start, step) with logic setting each to None accordingly
+        - slice hash function similar to tuple uses modified xxHash on start, stop, and step
+        - memoryview hash function can only hash readonly memoryviews in formats B, b, or c, else, hashes buffer (bytes)
     """
     # respect __pyhash__ functions
     if getattr(data, '__pyhash__', None) is not None:

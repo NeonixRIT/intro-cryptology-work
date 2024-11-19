@@ -9,7 +9,7 @@ def symmetric_alg(text: str, padding: str, ascii_base: int, key, key_size: int, 
 
     mis = []
     for i in range(0, len(text_no_special) // key_size + 1):
-        piece = [ord(char) - ascii_base for char in text_no_special[key_size * i:key_size * (i + 1)]]
+        piece = [ord(char) - ascii_base for char in text_no_special[key_size * i : key_size * (i + 1)]]
         if not piece:
             continue
         if len(piece) < key_size:

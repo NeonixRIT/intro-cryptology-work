@@ -7,6 +7,7 @@ SUPPORTS 3 Key Options:
     2. Key 1, 2 are independent, Key 3 = Key 1 (128 bit key, 112 used, ~? security)
     3. Key 1 = Key 2 = Key 3 (64 bit key, 56 used, ~56 security), functionally same as DES
 """
+
 from DES import DES
 
 
@@ -17,6 +18,7 @@ class TDES:
         self.des_1 = DES()
         self.des_2 = DES()
         self.des_3 = DES()
+        self.block_size = 64
 
     def encrypt_block(self, data: bytes, key: bytes) -> bytes:
         if len(key) != self.key_size:
@@ -44,7 +46,7 @@ class TDES:
 def main():
     plaintext = b'\x11\x22\x33\x44\x55\x66\x77\x88'
     key = b'0123456789abcdefghijklmo'
-    expected_ciphertext = b'\x2C\xD1\x3A\xEA\xBD\xBC\x60\xC6'
+    expected_ciphertext = b'\x2c\xd1\x3a\xea\xbd\xbc\x60\xc6'
     cipher = TDES()
 
     print('Plaintext  (inp) :'.ljust(20), plaintext.hex().upper())

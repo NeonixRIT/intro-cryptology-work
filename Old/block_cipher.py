@@ -29,7 +29,6 @@ class BlockCipher:
         self.ciphertext = res
         return self.ciphertext
 
-
     def decrypt(self, character_size: int = 8):
         cipher_blocks = [''.join([str(i) for i in chunk]).ljust(self.block_size, '0') for chunk in chunk_string(self.ciphertext, self.block_size)]
 

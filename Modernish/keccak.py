@@ -2,7 +2,7 @@ import math
 
 from random import SystemRandom
 from typing import Callable
-from utils import big_endian_to_int, int_to_big_endian_bytes
+
 """
 Algorithm Parameterss and Other Variables:
 A               -    A state array.
@@ -203,8 +203,16 @@ Indexing
     z: 0, 1, 2, 3 ... w - 1
 
 """
+
+
+def int_to_bytes(number: int, size: int = None, endian: str = 'big', signed=False) -> bytes:
+    if size is None:
+        size = (number.bit_length() + 7) // 8
+    return number.to_bytes(size, endian, signed=signed)
+
+
 def h2b(H: bytes, n: int = None) -> str:
-    '''
+    """
     1. For each integer i such that 0 ≤ i < 2m - 1, let Hi be the i-th hexadecimal digit in H:
         H = H0H1H2...H2m-1
     2. For each integer i such that 0 ≤ i < m:
@@ -213,8 +221,8 @@ def h2b(H: bytes, n: int = None) -> str:
             hi = bi7 * 2^7 + bi6 * 2^6 + bi5 + ... + bi0 * 2^0
     3. For each pair of integers (i, j) such that 0 ≤ i < m and 0 ≤ j < 8, let T[8i + j] = bij:
     4. Return S = Truncn(T).
-    '''
-    H = hex(big_endian_to_int(H))[2:]
+    """
+    H = H.hex()
     m = len(H) // 2
     if n is None:
         n = 8 * m
@@ -231,7 +239,7 @@ def h2b(H: bytes, n: int = None) -> str:
 
 
 def b2h(S: str) -> str:
-    '''
+    """
     1. Let n = len(S).
     2. Let T = S || O-n mod 8 and m = ⌈n/8⌉.
     3. For each pair of integers (i, j) such that 0 ≤ i < m and 0 ≤ j < 8, let bij = T[8i + j].
@@ -239,13 +247,13 @@ def b2h(S: str) -> str:
         a. Let hi = b7i * 2^7 + b6i * 2^6 + b5i + ... + b0i * 2^0.
         b. Let H2i and H2i+1 be the hexadecimal digits such that hi = 16 * H2i + H2i+1.
     5. Return H = H0H1H2...H2m-1.
-    '''
+    """
     n = len(S)
     T = S + ('0' * (-n % 8))
     m = n // 8 + 1 if n % 8 else n // 8
     res = ''
     for i in range(m):
-        hi = T[8 * i:8 * (i + 1)]
+        hi = T[8 * i : 8 * (i + 1)]
         res += hex(int(hi[::-1], 2))[2:].zfill(2)
     return res
 
@@ -260,8 +268,8 @@ def reverse_bits(x: int, n: int) -> int:
 
 
 def right_encode(x: int) -> str:
-    if not (0 <= x < 2 ** 2040):
-        raise ValueError("x must be in the range [0, 2**2040)")
+    if not (0 <= x < 2**2040):
+        raise ValueError('x must be in the range [0, 2**2040)')
 
     n = math.ceil(math.log2(x + 1) / 8) if x > 0 else 1
     reversed_x = reverse_bits(x, n * 8)
@@ -271,8 +279,8 @@ def right_encode(x: int) -> str:
 
 
 def left_encode(x: int) -> str:
-    if not (0 <= x < 2 ** 2040):
-        raise ValueError("x must be in the range [0, 2**2040)")
+    if not (0 <= x < 2**2040):
+        raise ValueError('x must be in the range [0, 2**2040)')
 
     n = math.ceil(math.log2(x + 1) / 8) if x > 0 else 1
     reversed_x = reverse_bits(x, n * 8)
@@ -282,8 +290,8 @@ def left_encode(x: int) -> str:
 
 
 def encode_string(S: str) -> str:
-    if len(S) > 2 ** 2040:
-        raise ValueError("S must be at most 2**2040 bits long")
+    if len(S) > 2**2040:
+        raise ValueError('S must be at most 2**2040 bits long')
     return left_encode(len(S)) + S
 
 
@@ -404,8 +412,8 @@ class State:
             raise ValueError('w must be 1, 2, 4, 8, 16, 32, or 64')
         self.w = w
         self.b = 25 * w
-        self.L = [i for i in range(7) if 2 ** i == w][0]
-        self.sheets = [Sheet(w) for _ in range(5)] # index x, y, z
+        self.L = [i for i in range(7) if 2**i == w][0]
+        self.sheets = [Sheet(w) for _ in range(5)]  # index x, y, z
         if S is not None:
             for x in range(5):
                 for y in range(5):
@@ -449,7 +457,7 @@ class State:
 
 
 def theta(A: State) -> State:
-    '''
+    """
     1. For all pairs (x, z) such that 0 ≤ x < 5 and 0 ≤ z < w, let:
            C[x, z] = A[x, 0, z] ⨁ A[x, 1, z] ⨁ A[x, 2, z] ⨁ A[x, 3, z] ⨁ A[x, 4, z].
     2. For all pairs (x, z) such that 0 ≤ x < 5 and 0 ≤ z < w, let:
@@ -457,7 +465,7 @@ def theta(A: State) -> State:
     3. For all triples (x, y, z) such that 0 ≤ x < 5, 0 ≤ y < 5, and 0 ≤ z < w, let:
            A'[x, y, z] = A[x, y, z] ⨁ D[x, z].
     4. Return A'.
-    '''
+    """
     A_prime = A.empty_state()
     w = A_prime.w
     C = Plane(w)
@@ -478,7 +486,7 @@ def theta(A: State) -> State:
 
 
 def rho(A: State) -> State:
-    '''
+    """
     1. For all z such that 0 ≤ z < w, let:
            A'[0, 0, z] = A[0, 0, z].
     2. Let (x, y) = (1, 0).
@@ -486,7 +494,7 @@ def rho(A: State) -> State:
            for all z such that 0 ≤ z < w, let A'[x, y, z] = A[x, y, (z - (t + 1)(t + 2) / 2) mod w].
            let (x, y) = (y, (2x + 3y) mod 5).
     4. Return A'.
-    '''
+    """
     A_prime = A.empty_state()
     w = A_prime.w
     for z in range(w):
@@ -502,11 +510,11 @@ def rho(A: State) -> State:
 
 
 def pi(A: State) -> State:
-    '''
+    """
     1. For all triples (x, y, z) such that 0 ≤ x < 5, 0 ≤ y < 5, and 0 ≤ z < w, let:
             A'[x, y, z] = A[(x + 3y) mod 5, x, z].
     2. Return A'.
-    '''
+    """
     A_prime = A.empty_state()
     w = A_prime.w
     for x in range(5):
@@ -517,11 +525,11 @@ def pi(A: State) -> State:
 
 
 def chi(A: State) -> State:
-    '''
+    """
     1. For all triples (x, y, z) such that 0 ≤ x < 5, 0 ≤ y < 5, and 0 ≤ z < w, let:
            A'[x, y, z] = A[x, y, z] ⨁ ((A[(x + 1) mod 5, y, z] ⨁ 1) & A[(x + 2) mod 5, y, z)]).
     2. Return A'.
-    '''
+    """
     A_prime = A.empty_state()
     w = A_prime.w
     for x in range(5):
@@ -532,7 +540,7 @@ def chi(A: State) -> State:
 
 
 def rc(t: int) -> int:
-    '''
+    """
     1. If t mod 255 = 0, return 1.
     2. Let R = 10000000.
     3. For i from 1 to t mod 255, let:
@@ -543,7 +551,7 @@ def rc(t: int) -> int:
            R[6] = R[6] ⨁ R[8].
            R = Trunc8(R).
     4. Return R[0].
-    '''
+    """
     t = t % 255
     if t == 0:
         return 1
@@ -559,19 +567,19 @@ def rc(t: int) -> int:
 
 
 def iota(A: State, i_r: int) -> State:
-    '''
+    """
     1. For all triples (x, y, z) such that 0 ≤ x < 5, 0 ≤ y < 5, and 0 ≤ z < w, let A'[x, y, z] = A[x, y, z].
     2. Let RC = OW.
     3. For j from 0 to l, let RC[2^j - 1] = rc(j + 7i_r).
     4. For all z such that 0 ≤ z < w, let A'[0, 0, z] = A'[0, 0, z] ⨁ RC[z].
     5. Return A'.
-    '''
+    """
     A_prime = A.copy()
     w = A_prime.w
     L = A_prime.L
     RC = [0] * w
     for j in range(L + 1):
-        RC[(2 ** j) - 1] = rc(j + (7 * i_r))
+        RC[(2**j) - 1] = rc(j + (7 * i_r))
     for z in range(A_prime.w):
         A_prime[0][0][z] ^= RC[z]
     return A_prime
@@ -579,15 +587,15 @@ def iota(A: State, i_r: int) -> State:
 
 class Keccak_p:
     def __init__(self, b: int, n_r: int):
-        '''
+        """
         1. Let L = log2(b / 25).
         2. Let w = 2^L.
         3. Let OW = 00000001.
         4. Let b = 25w.
         5. Let n_r be the number of rounds, which is one of 12 + 2L, 14 + 2L, or 16 + 2L.
-        '''
-        self.L = [i for i in range(7) if 2 ** i == b / 25][0]
-        self.w = 2 ** self.L
+        """
+        self.L = [i for i in range(7) if 2**i == b / 25][0]
+        self.w = 2**self.L
         self.b = b
         self.n_r = n_r
 
@@ -595,12 +603,12 @@ class Keccak_p:
         return iota(chi(pi(rho(theta(A)))), i_r)
 
     def __call__(self, S: str) -> str:
-        '''
+        """
         1. Convert S into a state array, A, as described in Section 3.1.2.
         2. For i_r from 12 + 2L - n_r to 12 + 2L - 1, let A = Rnd(A, i_r).
         3. Convert A into a string, S' of length b, as described in Section 3.1.3.
         4. Return S'.
-        '''
+        """
         A = State(self.w, S)
         for i_r in range(self.n_r):
             A = self.Rnd(A, i_r)
@@ -609,7 +617,7 @@ class Keccak_p:
 
 class Keccak_f(Keccak_p):
     def __init__(self, b: int):
-        L = [i for i in range(7) if 2 ** i == b / 25][0] # l = log2(b / 25)
+        L = [i for i in range(7) if 2**i == b / 25][0]  # l = log2(b / 25)
         n_r = 12 + 2 * L
         super().__init__(b, n_r)
 
@@ -621,7 +629,7 @@ class Sponge:
         self.r = r
 
     def __call__(self, N: str, d: int) -> str:
-        '''
+        """
         1.  Let P = N || pad(r, len(N)).
         2.  Let n = len(P)/r.
         3.  Let c = b - r
@@ -632,11 +640,11 @@ class Sponge:
         8.  Let Z = Z || Truncr(S).
         9.  If d ≤ |Z|, then return Truncd(Z); else continue.
         10. Let S = f(S), and continue with Step 8
-        '''
+        """
         P = [int(bit) for bit in (N + self.pad(self.r, len(N)))]
         n = len(P) // self.r
         c = self.f.b - self.r
-        Pis = [P[i * self.r:(i + 1) * self.r] for i in range(n)]
+        Pis = [P[i * self.r : (i + 1) * self.r] for i in range(n)]
         S = [0] * self.f.b
         for i in range(n):
             Pi = Pis[i]
@@ -645,17 +653,17 @@ class Sponge:
 
         Z = []
         while True:
-            Z = Z + S[:self.r]
+            Z = Z + S[: self.r]
             if d <= len(Z):
                 return Z[:d]
             S = [int(bit) for bit in self.f(S)]
 
 
 def pad10x1(x: int, m: int) -> str:
-    '''
+    """
     1. Let j = (-m - 2) mod x.
     2. Return P = 1 || Oj || 1.
-    '''
+    """
     j = (-m - 2) % x
     return '1' + ('0' * j) + '1'
 
@@ -717,15 +725,15 @@ def shake256(M: bytes, d: int) -> int:
 
 class cSHAKE:
     def __init__(self, c: int, L: int, N: str = '', S: str = ''):
-        '''
+        """
         c = security strength * 2 supported by SHAKE, 256(c=128) or 512(c=256)
         N = Function Name Bit String, S = Customization Bit String
         N is a bit string of a function name defined by NIST.
         if N and S are empty, cSHAKE[c] is identical to SHAKE[c].
-        '''
+        """
         if c != 256 and c != 512:
             raise ValueError(f'c must be 256 or 512: {c}')
-        if len(N) * 8 >= 2 ** 2040 and len(S) * 8 >= 2 ** 2040:
+        if len(N) * 8 >= 2**2040 and len(S) * 8 >= 2**2040:
             raise ValueError('Length of bit strings N and S must be less than 2^2040')
         self.c = c
         self.L = L
@@ -793,36 +801,36 @@ def sha3_512(M: bytes) -> int:
 
 class PRNG:
     def __init__(self, underlying_hash_function):
-        '''
+        """
         underlying_hash_function: hash function to use for PRNG
             must have the signature hash_function(bytes, int) -> bytes
                 the first argument is the seed
                 the second argument is the number of bits to return
-        '''
+        """
         self.__hash_func = underlying_hash_function
         self.__true_rng = SystemRandom()
 
     def random_bytes(self, n: int, seed: bytes = None) -> bytes:
-        '''
+        """
         n: number of bytes to generate
         Generate and return n pseudo-random bytes
-        '''
+        """
         if n < 0:
             raise ValueError('n must be non-negative')
         if n == 0:
             return b''
         seed = seed if seed is not None else self.__true_rng.randbytes(32)
         d = n * 8 + (8 - n * 8 % 8)
-        return int_to_big_endian_bytes(self.__hash_func(seed, d))[:n]
+        return int_to_bytes(self.__hash_func(seed, d))[:n]
 
     def random_bits(self, n: int, seed: bytes = None) -> str:
-        '''
+        """
         n: number of bits to generate
         Generate and return a pseudo-random bit string of length n
-        '''
+        """
         seed = seed if seed is not None else self.__true_rng.randbytes(32)
         d = n + (8 - n % 8)
-        return bin(self.__hash_func(seed, d)).zfill(d)[2:n + 2]
+        return bin(self.__hash_func(seed, d)).zfill(d)[2 : n + 2]
 
 
 prng_shake128 = PRNG(shake128)
@@ -831,6 +839,7 @@ prng_shake256 = PRNG(shake256)
 
 def main():
     from hashlib import sha3_224, sha3_256, sha3_384, sha3_512, shake_128, shake_256
+
     light_red = '\033[91m'
     light_green = '\033[92m'
     light_yellow = '\033[93m'

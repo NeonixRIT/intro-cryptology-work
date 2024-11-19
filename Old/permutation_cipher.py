@@ -12,7 +12,7 @@ def pad_string(text: str, pad_char: str, key: dict) -> str:
 def symmetric_alg(text: str, key: dict) -> str:
     res = ''
     for i in range(0, len(text) // len(key) + 1):
-        piece = text[len(key) * i:len(key) * (i + 1)]
+        piece = text[len(key) * i : len(key) * (i + 1)]
         for j, _ in enumerate(piece):
             res += piece[key[j + 1] - 1]
     return res

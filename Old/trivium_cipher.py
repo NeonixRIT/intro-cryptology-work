@@ -56,8 +56,8 @@ class TriviumKey(Key):
 
 def trivium_ksg(key: TriviumKey, length=1000):
     if len(key.seed) != 80 or len(key.nonce) != 80:
-        raise ValueError("The key and nonce must be 80 bits long.")
-    length += (4 * 288)  # add warmup
+        raise ValueError('The key and nonce must be 80 bits long.')
+    length += 4 * 288  # add warmup
     block_1 = [int(key.seed[i]) if i < len(key.seed) else 0 for i in range(93)]
     block_2 = [int(key.nonce[i]) if i < len(key.nonce) else 0 for i in range(84)]
     block_3 = [1 if i > 107 else 0 for i in range(111)]

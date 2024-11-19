@@ -2,135 +2,184 @@ import numpy as np
 import sympy as sp
 import threading
 
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED, process
 from sys import byteorder, setrecursionlimit
 from functools import cache, wraps
-from multiprocessing import cpu_count
-from queue import Queue
+from multiprocessing import cpu_count, Manager
+from os import getpid, kill, _exit
 from random import randint, seed, randrange, choice, SystemRandom
-from time import perf_counter
+from time import perf_counter, sleep
+
+from multiprocessing import Process, Pipe
+from queue import Queue, Full
+
 
 LIGHT_GREEN = '\033[1;32m'
 LIGHT_RED = '\033[1;31m'
 CYAN = '\u001b[36m'
 WHITE = '\033[0m'
 
-setrecursionlimit(10 ** 8)
+setrecursionlimit(10**8)
 
 
-def firstresult(func):
-    '''
-    Decorator that runs multiple instances of a function and returns the first result
-    Supposed to interupt the execution of the function if the result is found
-    But doesnt work...
-    '''
-    queue = Queue()
+def get_pid_and_run(queue, func, *args, **kwargs):
+    pid = getpid()
+    queue.put(pid)
+    result = func(*args, **kwargs)
+    return pid, result
 
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        def _wrapper():
-            queue.put(func(*args, **kwargs))
-        threads = [threading.Thread(target=_wrapper) for _ in range(cpu_count())]
 
-        for thread in threads:
+def kill_all_pid_in_queue(pid_queue):
+    while not pid_queue.empty():
+        pid = pid_queue.get()
+        try:
+            kill(pid, 9)
+        except (ProcessLookupError, process.BrokenProcessPool):
+            pass
+
+
+def get_first_result(func, *args, timeout=None, **kwargs):
+    """
+    Runs multiple instances of a function in parallel.
+    The first process to complete will return its result.
+    All other processes are killed.
+
+    Wish this was a decorator.
+    """
+    pid_queue = Manager().Queue()
+    while True:
+        with ProcessPoolExecutor(max_workers=cpu_count(), max_tasks_per_child=1) as executor:
+            futures = [executor.submit(get_pid_and_run, pid_queue, func, *args, **kwargs) for _ in range(cpu_count())]
+            try:
+                for future in as_completed(futures, timeout=timeout):
+                    _, result = future.result()
+                    kill_all_pid_in_queue(pid_queue)
+                    return result
+            except TimeoutError:
+                continue
+
+
+import ctypes
+import inspect
+
+
+def _async_raise(tid, exctype):
+    """Raises an exception in the threads with id tid"""
+    if not inspect.isclass(exctype):
+        raise TypeError('Only types can be raised (not instances)')
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(exctype))
+    if res == 0:
+        raise ValueError('invalid thread id')
+    elif res != 1:
+        # "if it returns a number greater than one, you're in trouble,
+        # and you should call it again with exc=NULL to revert the effect"
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)
+        raise SystemError('PyThreadState_SetAsyncExc failed')
+
+
+class ThreadWithExc(threading.Thread):
+    """A thread class that supports raising an exception in the thread from
+    another thread.
+    """
+
+    def _get_my_tid(self):
+        """determines this (self's) thread id
+
+        CAREFUL: this function is executed in the context of the caller
+        thread, to get the identity of the thread represented by this
+        instance.
+        """
+        if not self.is_alive():
+            raise threading.ThreadError('the thread is not active')
+        return self.ident
+
+        # # do we have it cached?
+        # if hasattr(self, "_thread_id"):
+        #     return self._thread_id
+
+        # # no, look for it in the _active dict
+        # for tid, tobj in threading._active.items():
+        #     if tobj is self:
+        #         self._thread_id = tid
+        #         return tid
+
+        # # TODO: in python 2.6, there's a simpler way to do: self.ident
+
+        # raise AssertionError("could not determine the thread's id")
+
+    def raise_exc(self, exctype):
+        """Raises the given exception type in the context of this thread.
+
+        If the thread is busy in a system call (time.sleep(),
+        socket.accept(), ...), the exception is simply ignored.
+
+        If you are sure that your exception should terminate the thread,
+        one way to ensure that it works is:
+
+            t = ThreadWithExc( ... )
+            ...
+            t.raise_exc( SomeException )
+            while t.isAlive():
+                time.sleep( 0.1 )
+                t.raise_exc( SomeException )
+
+        If the exception is to be caught by the thread, you need a way to
+        check that your thread has caught it.
+
+        CAREFUL: this function is executed in the context of the
+        caller thread, to raise an exception in the context of the
+        thread represented by this instance.
+        """
+        _async_raise(self._get_my_tid(), exctype)
+
+
+class ThreadManager:
+    def __init__(self, func, *args, max_workers=None, timeout=None, **kwargs):
+        self.threads = []
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        self.max_workers = max_workers if max_workers else cpu_count()
+        self.timeout = timeout
+        self.result = None
+        self.result_time = None
+        self.result_lock = threading.Lock()
+
+    def __kill_all_threads(self):
+        while [thread.raise_exc(SystemExit) for thread in self.threads if thread.is_alive()]:
+            sleep(0.1)
+        self.threads.clear()
+
+    def run(self, callback):
+        self.threads = [ThreadWithExc(target=self.__thread_func, daemon=True) for _ in range(self.max_workers)]
+        for thread in self.threads:
             thread.start()
 
-        result = queue.get()
-        return result
+        while True:
+            if self.result is not None:
+                callback(self.result)
+                break
 
-    return wrapper
+    def __thread_func(self):
+        try:
+            t1 = perf_counter()
+            result = self.func(*self.args, **self.kwargs)
+            t2 = perf_counter()
+            with self.result_lock:
+                if self.result is None:
+                    self.result = result
+                    self.result_time = t2 - t1
+                else:
+                    return
+        except SystemExit:
+            return
 
+    def __enter__(self):
+        return self
 
-def drbg_cycle(block_1: list[int], block_2: list[int], block_3: list[int]):
-    b_1o_pos = 65 // 93 * len(block_1)
-    b_2o_pos = 68 // 84 * len(block_2)
-    b_3o_pos = 67 // 111 * len(block_3)
-
-    b_1i1_pos = 68 // 93 * len(block_1) + 1
-    b_1i2_pos = len(block_3) - 3
-    b_1i3_pos = b_1i2_pos + 1
-
-    b_2i1_pos = 77 // 84 * len(block_2)
-    b_2i2_pos = len(block_1) - 3
-    b_2i3_pos = b_2i2_pos + 1
-
-    b_3i1_pos = 88 // 111 * len(block_3) + 1
-    b_3i2_pos = len(block_2) - 3
-    b_3i3_pos = b_3i2_pos + 1
-
-    b1_o = (block_1[-1] + block_1[b_1o_pos]) % 2
-    b2_o = (block_2[-1] + block_2[b_2o_pos]) % 2
-    b3_o = (block_3[-1] + block_3[b_3o_pos]) % 2
-
-    b1_i = (block_1[b_1i1_pos] + (b3_o + (block_3[b_1i2_pos] & block_3[b_1i3_pos]))) % 2
-    b2_i = (block_2[b_2i1_pos] + (block_1[b_2i2_pos] & block_1[b_2i3_pos])) % 2
-    b3_i = (block_3[b_3i1_pos] + (block_2[b_3i2_pos] & block_2[b_3i3_pos])) % 2
-
-    del block_1[-1]
-    del block_2[-1]
-    del block_3[-1]
-
-    block_1.append(b1_i)
-    block_2.append(b2_i)
-    block_3.append(b3_i)
-
-    block_1 = shift_right(block_1, 1)
-    block_2 = shift_right(block_2, 1)
-    block_3 = shift_right(block_3, 1)
-
-    zi = (b1_o + b2_o + b3_o) % 2
-    return block_1, block_2, block_3, zi
-
-
-def approved_drbg(entropy, nonce, security_requested: int = 2048):
-    block_1 = [int(entropy[i]) if i < len(entropy) else 0 for i in range(int(31 * security_requested / 96))]
-    block_2 = [int(nonce[i]) if i < len(nonce) else 0 for i in range(int(7 * security_requested / 24) + 1)]
-    block_3 = [1 if i > 107 else 0 for i in range(int(37 * security_requested / 96))]
-
-    # warm up
-    for _ in range(4 * security_requested):
-        block_1, block_2, block_3, _ = drbg_cycle(block_1, block_2, block_3)
-
-    # generate output
-    for _ in range(security_requested):
-        block_1, block_2, block_3, zi = drbg_cycle(block_1, block_2, block_3)
-        yield zi
-
-
-def generate_random_bits_nlsfr(bits_requested: int, key: str = None):
-    '''
-    Generates random bits using a Non-Linear Shift Register
-    TODO: optimize each round to use bitwise operations instead of list operations
-    Likely not secure if primes are known?
-    '''
-    return_bits = bits_requested
-    bits_requested = max(bits_requested, 128)
-    primes_256 = [63501805511457467369710635740852238757343623833084154675632279478806503558509, 90043701177638554785940392019956812636621066712813924791033398133624943296641, 100917117378854445249904303042469459596283105246295629981885033009212909952449, 80820906391093384912735098299847189357766548163821999240757497789238497372119, 85454083393931613546048843476790490196356457977206279454712265150747717063121, 102978106558267118708699245762922357409634582483060877891522613555139244966479, 114797111308216206784068983756095856394864813003047815308687507317129014809563, 78416955887490391225655354773561165595342462542477321355639656700041866631339, 103276797568985730142702464288438844718925024186674487785606364967582429584067, 98256667360118294840757842498124769511864608104623929398361067240322307285819]
-    prime_256_bits = ''.join([bin(prime)[2:].zfill(256) for prime in primes_256])
-    n_security = bits_requested + 256
-    if n_security % 2 == 1:
-        n_security += 1
-
-    rand_bits = key
-    if key is None:
-        rand_bits = bin(SystemRandom().getrandbits(n_security * 2))[2:].zfill(n_security * 2)
-    seed, nonce = rand_bits[:n_security], rand_bits[n_security:]
-
-    res = ''
-    i = 1
-    while True:
-        drbg = approved_drbg(seed, nonce, n_security)
-        for _ in range(n_security):
-            res += str(next(drbg))
-            if len(res) == bits_requested:
-                yield res[:return_bits]
-                prime = primes_256[i % 10]
-                seed, nonce = res + bin(prime)[2:], bin(i ** (n_security // 3) + prime)[2:][:n_security]
-                if len(seed) < n_security:
-                    seed += prime_256_bits[(i * (n_security - len(seed))) % 2560:((i + 1) * (n_security - len(seed))) % 2560]
-                if len(nonce) < n_security:
-                    nonce += prime_256_bits[(i * (n_security - len(nonce))) % 2560:((i + 1) * (n_security - len(nonce))) % 2560]
-                res = ''
-                i += 1
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        threading.Thread(target=self.__kill_all_threads).start()
+        return False
 
 
 def GF_256_multiply(a, b):
@@ -141,7 +190,7 @@ def GF_256_multiply(a, b):
         carry = a & 0x80  # Leftmost bit of a
         a <<= 1  # Shift a one bit to the left
         if carry:  # If carry had a value of one
-            a ^= 0x1b  # Exclusive OR with 0x1b
+            a ^= 0x1B  # Exclusive OR with 0x1b
         b >>= 1  # Shift b one bit to the right
     return p
 
@@ -150,7 +199,7 @@ def words_to_bytes(words: list[bytes]) -> bytes:
     return bytes([byte for word in words for byte in word])
 
 
-@cache
+# @cache
 def xor_words(a: bytes, b: bytes) -> bytes:
     return bytes([a[i] ^ b[i] for i in range(len(a))])
 
@@ -198,8 +247,8 @@ def strip_string(string: str, is_valid_char=is_valid_char) -> str:
 
 def chunk_string(string: str, chunk_size: int, convert_ascii: bool = False, ascii_base: int = 65) -> list[str]:
     if convert_ascii:
-        return [[ord(char) - ascii_base for char in string[chunk_size * i:chunk_size * (i + 1)]] for i in range(0, len(string) // chunk_size + 1) if string[chunk_size * i:chunk_size * (i + 1)]]
-    return [string[i:i + chunk_size] for i in range(0, len(string), chunk_size)]
+        return [[ord(char) - ascii_base for char in string[chunk_size * i : chunk_size * (i + 1)]] for i in range(0, len(string) // chunk_size + 1) if string[chunk_size * i : chunk_size * (i + 1)]]
+    return [string[i : i + chunk_size] for i in range(0, len(string), chunk_size)]
 
 
 def shift_right(items: str | list, shift: int) -> str | list:
@@ -231,7 +280,7 @@ def rotr(num, bits, zfill_len: int):
         return num
 
     andy = 2 ** (zfill_len - bits) - 1
-    return (num >> bits) | (((num & andy) << zfill_len - bits))
+    return (num >> bits) | ((num & andy) << zfill_len - bits)
 
 
 def shr(num, bits):
@@ -245,7 +294,7 @@ def shl(num, bits):
 def little_endian_to_int(b: bytes) -> int:
     int_value = 0
     for i in range(len(b)):
-        int_value |= (b[i] << (i * 8))
+        int_value |= b[i] << (i * 8)
     return int_value
 
 
@@ -307,22 +356,22 @@ def number_to_string(number: int, char_size: int = 8) -> str:
     return ''.join([chr(int(byte_letter, 2)) for byte_letter in chunk_string(binary, char_size)])
 
 
-@cache
+# @cache
 def xor_bits(a: str, b: str) -> str:
     return ''.join([str(int(a[i]) ^ int(b[i])) for i in range(len(a))])
 
 
 def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, verbos: bool = False) -> list:
     if len(init_state) < degree:
-        raise ValueError("The initial state must be at least as long as the degree of the LSFR.")
+        raise ValueError('The initial state must be at least as long as the degree of the LSFR.')
 
     gates = [-1 - i for i in gates]
     blocks = [int(init_state[i]) for i in range(degree)]
 
     if verbos:
         print()
-        print('bit', str([f's{i}' for i in range(degree)]).replace('\'', ''), 'out')
-        print('---', str([str(bit).rjust(2) for bit in blocks]).replace('\'', ''), '---')
+        print('bit', str([f's{i}' for i in range(degree)]).replace("'", ''), 'out')
+        print('---', str([str(bit).rjust(2) for bit in blocks]).replace("'", ''), '---')
 
     for i in range(length):
         if gates:
@@ -333,15 +382,15 @@ def lsfr(degree: int, gates: list[int], init_state: str, length: int = 1000, ver
         out = blocks[-1]
         del blocks[-1]
         if verbos:
-            print(f'{i + 1}'.ljust(3), str([str(bit).rjust(2) for bit in blocks]).replace('\'', '').ljust(2 * degree), out)
+            print(f'{i + 1}'.ljust(3), str([str(bit).rjust(2) for bit in blocks]).replace("'", '').ljust(2 * degree), out)
         yield out
 
 
 def feistel_system(inp: str, f, ksa, block_size: int, rounds: int, is_bits: bool = False) -> str:
     if len(inp) % 2 != 0:
         inp += '\0'
-    l_half = inp[:len(inp) // 2]
-    r_half = inp[len(inp) // 2:]
+    l_half = inp[: len(inp) // 2]
+    r_half = inp[len(inp) // 2 :]
     if not is_bits:
         l_half = ''.join([str(bit) for bit in string_to_bits(l_half)]).zfill(block_size)
         r_half = ''.join([str(bit) for bit in string_to_bits(r_half)]).zfill(block_size)
@@ -359,8 +408,8 @@ def feistel_system(inp: str, f, ksa, block_size: int, rounds: int, is_bits: bool
 def feistel_system_keys(inp: str, f, keys, block_size: int, rounds: int, is_bits: bool = False) -> str:
     if len(inp) % 2 != 0:
         inp += '\0'
-    l_half = inp[:len(inp) // 2]
-    r_half = inp[len(inp) // 2:]
+    l_half = inp[: len(inp) // 2]
+    r_half = inp[len(inp) // 2 :]
     if not is_bits:
         l_half = ''.join([str(bit) for bit in string_to_bits(l_half)]).zfill(block_size)
         r_half = ''.join([str(bit) for bit in string_to_bits(r_half)]).zfill(block_size)
@@ -375,12 +424,12 @@ def feistel_system_keys(inp: str, f, keys, block_size: int, rounds: int, is_bits
     return l_half + r_half
 
 
-@cache
+# @cache
 def example_f(bits: str, key: int):
     # 1
     num = int(bits[::-1], 2)
     # 2
-    ki = (num ** 3 + key) % 16
+    ki = (num**3 + key) % 16
     return bin(ki)[2:].zfill(len(bits))
 
 
@@ -390,7 +439,7 @@ def example_ksa(key: str, rounds: int):
         yield int(key, 2)
 
 
-@cache
+# @cache
 def permute(inp: str, permutation: tuple[int], base: int = 1):
     return ''.join([inp[i - base] for i in permutation])
 
@@ -468,24 +517,63 @@ def euclidian_alg_gcd_verbose(a, b, tabs=1):
         b = r
 
 
-@cache
+# @cache
 def is_prime_from_list(n: int, primes: tuple[int]) -> bool:
     for prime in primes:
-        if n % prime == 0 and prime ** 2 <= n:
+        if n % prime == 0 and prime**2 <= n:
             return False
     return True
 
 
-@cache
 def is_prime_default(n: int) -> bool:
     if n == 2:
         return True
     if n % 2 == 0 or n < 2:
         return False
-    for i in range(3, int(n ** 0.5) + 1, 2):
+    for i in range(3, int(n**0.5) + 1, 2):
         if n % i == 0:
             return False
     return True
+
+
+def sieve_of_eratosthenes(n: int) -> list[int]:
+    ps = [True] * (n + 1)
+    ps[0] = ps[1] = False
+
+    p = 2
+    while p < n + 1:
+        if not ps[p]:
+            p += 1
+            continue
+        for j in range(p * p, n + 1, p):
+            ps[j] = False
+        p += 1
+    return ps
+
+
+def euler_sieve(n: int) -> list[int]:
+    if n < 2:
+        return []
+
+    primes = []
+    is_prime = [True] * (n - 1)
+    for i in range(2, n + 1):
+        if not is_prime[i - 2]:
+            continue
+        primes.append(i)
+        for j in range(i * i, n + 1, i):
+            is_prime[j - 2] = False
+    return primes
+
+
+def euclidean_list_primes(n: int) -> list[int]:
+    primes = []
+    b = 1
+    for i in range(2, n + 1):
+        if euclidean_alg_gcd(i, b) == 1:
+            primes.append(i)
+            b *= i
+    return primes
 
 
 def is_prime_fermat(n: int, k: int = 10) -> bool:
@@ -497,7 +585,7 @@ def is_prime_fermat(n: int, k: int = 10) -> bool:
         return False
 
     for _ in range(k):
-        a = randint(2, n - 2) # doesnt account for duplicates :(
+        a = randint(2, n - 2)  # doesnt account for duplicates :(
         if euclidean_alg_gcd(a, n) != 1 or square_exponentiation(a, n - 1, n) != 1:
             return False
     return True
@@ -542,13 +630,13 @@ def is_perfect_square(c: int):
     n = (n + n // 2).bit_length()
     m = n // 2 + 1
 
-    xi = int((1 / 2) * (c ** 0.5)) + (2 ** (m - 1))
+    xi = int((1 / 2) * (c**0.5)) + (2 ** (m - 1))
     while True:
-        xi = (xi ** 2 + c) // (2 * xi)
-        if (xi ** 2) < (2 ** m + c):
+        xi = (xi**2 + c) // (2 * xi)
+        if (xi**2) < (2**m + c):
             break
 
-    if int(xi ** 2) == c:
+    if int(xi**2) == c:
         return True
     return False
 
@@ -608,7 +696,7 @@ def prime_factors_vector(n: int) -> list[int]:
         factors.append(1)
         last_value = index
 
-    return factors[:last_value + 1]
+    return factors[: last_value + 1]
 
 
 def pollards_rho(n):
@@ -628,7 +716,7 @@ def pollards_rho(n):
     return d
 
 
-@cache
+# @cache
 def prime_factors_pollards(n):
     if n <= 1:
         return []
@@ -643,7 +731,7 @@ def prime_factors_pollards(n):
     return factors
 
 
-def pollards_rho_cycle_check(x0, func):
+def floyd_cycle_check(x0, func):
     tortoise = func(x0)
     hare = func(func(x0))
     while tortoise != hare:
@@ -714,28 +802,16 @@ def brents_cycle_check(x0, func, verbose=False):
             hare = func(hare)
             if hare == tortoise:
                 break
-        if verbose:
-            print(f'\tt={tortoise}, h={hare}')
         lam += m
 
     tortoise = hare = x0
-    if verbose:
-        print()
-        print(f'\tt={tortoise}, h={hare}')
     for _ in range(lam):
         hare = func(hare)
-        if verbose:
-            print(f'\tt={tortoise}, h={hare}')
 
-    if verbose:
-        print()
-        print(f'\tt={tortoise}, h={hare}')
     mu = 0
     while tortoise != hare:
         tortoise = func(tortoise)
         hare = func(hare)
-        if verbose:
-            print(f'\tt={tortoise}, h={hare}')
         mu += 1
 
     return lam, mu
@@ -798,28 +874,28 @@ def prime_factors_brents(n):
 
 
 def mod_inverse_fermat(a: int, p: int) -> int:
-    '''
+    """
     a ^ (p - 1) = 1 (mod p)
     only works if modulus p is prime
-    '''
+    """
     if euclidean_alg_gcd(a, p) != 1 or not is_prime_default(p):
         return -1
     return square_exponentiation(a, p - 2, p)
 
 
 def mod_inverse_fermat_verbose(a: int, p: int) -> int:
-    '''
+    """
     a ^ (p - 1) = 1 (mod p)
     only works if modulus p is prime
     and a is not divisible by p
     IE: a and p are coprime
-    '''
+    """
     print('\t\ta ^ (p - 1) ≣ 1 mod p')
     print('\t\ta * [a ^ (p - 2)] mod p = 1')
     print('\t\ta⁻¹ ≣ a ^ [p - 2] mod p')
     print(f'\t\t{a}⁻¹ ≣ {a} ^ ({p - 2}) mod {p}')
     if euclidean_alg_gcd(a, p) != 1 or not is_prime_default(p):
-        print(f'\t\tthe inverse mod of {a} with respect to {p} doesn\'t exist. (a and p are not coprime or p is not prime).')
+        print(f"\t\tthe inverse mod of {a} with respect to {p} doesn't exist. (a and p are not coprime or p is not prime).")
         return -1
     res = square_exponentiation(a, p - 2, p)
     print(f'\t\tthe inverse mod of {a} with respect to {p} is {res}\n')
@@ -833,7 +909,7 @@ def eulers_phi(n: int) -> int:
 
     phi = n
     for p in set(prime_factors_brents(n)):
-        phi *= (1 - (1 / p))
+        phi *= 1 - (1 / p)
 
     return int(phi)
 
@@ -861,7 +937,7 @@ def eulers_phi_verbose(n: int, tabs=1) -> int:
     res = ''
     vals = []
     for e in expr.split(' * '):
-        p, x = e[1: -1].split(' ^ ')
+        p, x = e[1:-1].split(' ^ ')
         res += f'[({p} ^ {x}) - ({p} ^ {int(x) - 1})] * '
         vals.append((int(p) ** int(x)) - (int(p) ** (int(x) - 1)))
     print('\t' * (tabs + 1), res[:-3], sep='')
@@ -931,9 +1007,9 @@ def extended_euclidean_verbose(a: int, b: int, tabs: int = 1):
 
 
 def mod_inverse_euler(a: int, b: int) -> int:
-    '''
+    """
     a * x ≣ 1 mod b
-    '''
+    """
     if euclidean_alg_gcd(a, b) != 1:
         return -1
     m = eulers_phi(b)
@@ -941,11 +1017,11 @@ def mod_inverse_euler(a: int, b: int) -> int:
 
 
 def mod_inverse_euler_verbose(a: int, b: int) -> int:
-    '''
+    """
     a * x ≣ 1 mod b
-    '''
+    """
     if euclidean_alg_gcd(a, b) != 1:
-        print(f'\t\tThe inverse mod of {a} with respect to {b} doesn\'t exist. (a and b are not coprime).')
+        print(f"\t\tThe inverse mod of {a} with respect to {b} doesn't exist. (a and b are not coprime).")
         print(f'\t\t{a} * x ≣ 1 mod {b}')
         print('\t\tx does not exist')
         return -1
@@ -968,9 +1044,9 @@ def fast_inverse_mod(a: int, b: int) -> int:
 
 
 def inverse_mod(a: int, b: int) -> int:
-    '''
+    """
     a * x ≣ 1 mod b
-    '''
+    """
     if euclidean_alg_gcd(a, b) != 1:
         return -1
     if is_prime_fermat(b):
@@ -979,29 +1055,29 @@ def inverse_mod(a: int, b: int) -> int:
 
 
 def inverse_mod_verbose(a: int, b: int) -> int:
-    '''
+    """
     a * x ≣ 1 mod b
-    '''
+    """
     print(f'\t{a}⁻¹ mod {b}:')
     if euclidian_alg_gcd_verbose(a, b, tabs=2) != 1:
         return -1
     print(f'\t\t{a} and {b} are coprime. (gcd({a}, {b}) = 1)')
     if is_prime_fermat(b):
-        print(f'\t\t{b} is prime. Using Fermat\'s Little Theorem: a ^ (p - 1) ≣ 1 mod p)')
+        print(f"\t\t{b} is prime. Using Fermat's Little Theorem: a ^ (p - 1) ≣ 1 mod p)")
         return mod_inverse_fermat_verbose(a, b)
-    print(f'\t\t{b} is not prime. Using Euler\'s Theorem: a ^ (φ(p) - 1) ≣ 1 mod p)')
+    print(f"\t\t{b} is not prime. Using Euler's Theorem: a ^ (φ(p) - 1) ≣ 1 mod p)")
     return mod_inverse_euler_verbose(a, b) % b
 
 
-@cache
+# @cache
 def square_exp_round_func(base: int, y: int, bit: int, mod: int) -> int:
-    y = (y ** 2) % mod
+    y = (y**2) % mod
     if bit == 1:
         y = (y * base) % mod
     return y
 
 
-@cache
+# @cache
 def square_exponentiation(base: int, exponent: int, mod: int = None) -> int:
     if mod is None:
         return pow(base, exponent)
@@ -1014,7 +1090,7 @@ def square_exponentiation(base: int, exponent: int, mod: int = None) -> int:
 
 def solve_discrete_log(base: int, n: int, mod: int):
     for i in range(1, mod):
-        if (base ** i) % mod == n:
+        if (base**i) % mod == n:
             return i
     return -1
 
@@ -1022,7 +1098,7 @@ def solve_discrete_log(base: int, n: int, mod: int):
 def solve_discrete_log_verbose(base: int, n: int, mod: int, tabs: int = 1, print_step_interval: int = 50):
     print('\t' * tabs, f'{base}^x mod {mod} = {n}:', sep='')
     for i in range(1, mod):
-        if (base ** i) % mod == n:
+        if (base**i) % mod == n:
             if i != 1 or i % print_step_interval != 0:
                 print('\t' * tabs, f'\t{base}^{i} mod {mod} = {n} ✅\n', sep='')
             else:
@@ -1035,7 +1111,7 @@ def solve_discrete_log_verbose(base: int, n: int, mod: int, tabs: int = 1, print
 
 
 def square_exponentiation_default(base: int, exponent: int, mod: int) -> int:
-    return (base ** exponent) % mod
+    return (base**exponent) % mod
 
 
 def square_exponentiation_verbose(base: int, exponent: int, mod: int, tabs: int = 1) -> int:
@@ -1048,7 +1124,7 @@ def square_exponentiation_verbose(base: int, exponent: int, mod: int, tabs: int 
     print('\t' * tabs, f'\t{0}\t{binary_exp[0]}\t{y}\tX\tX\t{binary_exp[0]}', sep='')
     for i, bit in enumerate(exponent):
         temp_a = y
-        y = (y ** 2) % mod
+        y = (y**2) % mod
         temp_b = y
         if bit == 1:
             y = (y * base) % mod
@@ -1112,7 +1188,7 @@ def chinese_remainder_theorem_verbose(x: int, d: int, p: int, q: int) -> int:
 
 
 def crt_default(x: int, d: int, p: int, q: int) -> int:
-    return (x ** d) % (p * q)
+    return (x**d) % (p * q)
 
 
 def crt_builtin(x: int, d: int, p: int, q: int) -> int:
@@ -1121,7 +1197,7 @@ def crt_builtin(x: int, d: int, p: int, q: int) -> int:
 
 def generate_prime_fermat(min_bits: int, prime_list: tuple[int] = None) -> int:
     start = 2 ** (min_bits - 1)
-    stop = 2 ** min_bits - 1
+    stop = 2**min_bits - 1
     if prime_list is None:
         prime_list = []
     while True:
@@ -1132,7 +1208,7 @@ def generate_prime_fermat(min_bits: int, prime_list: tuple[int] = None) -> int:
 
 def generate_prime_miller(min_bits: int, prime_list: tuple[int] = None) -> int:
     start = 2 ** (min_bits - 1)
-    stop = 2 ** min_bits
+    stop = 2**min_bits
     if prime_list is None:
         prime_list = []
     while True:
@@ -1141,19 +1217,27 @@ def generate_prime_miller(min_bits: int, prime_list: tuple[int] = None) -> int:
             return prime
 
 
-def generate_rsa_key_pair(bits: int = 1024, e: int = 65537):
+def generate_rsa_key_pair_instance(half_bits: int, e: int):
     while True:
-        if e is None:
-            e = SystemRandom().randrange(2 ** 16 + 1, 2 ** 256, 2)
-        p = generate_prime_miller(bits // 2)
+        p = generate_prime_miller(half_bits)
         q = 0
-        while abs(p - q) <= 2 ** ((bits // 2) - 100) or q == 0:
-            q = generate_prime_miller(bits // 2)
+        while abs(p - q) <= 2 ** (half_bits - 100) or q == 0:
+            q = generate_prime_miller(half_bits)
         n = p * q
         phi = (p - 1) * (q - 1)
         d = fast_inverse_mod(e, phi)
         if d != -1:
             return (e, n), (d, p, q)
+
+
+def generate_rsa_key_pair(bits: int = 1024, e: int = 65537):
+    """
+    Use all cpu cores to generate RSA key pair
+    """
+    half_bits = bits // 2
+    if e is None:
+        e = SystemRandom().randrange(2**16 + 1, 2**256, 2)
+    return get_first_result(generate_rsa_key_pair_instance, half_bits, e)
 
 
 def generate_rsa_key_pair_verbose(bits: int = 1024):
@@ -1205,16 +1289,58 @@ def rsa_decrypt_base(cipher: str | int, key: tuple[int, int, int], ret_string: b
 def get_primitive_roots(p: int) -> list:
     if p == 2:
         return 1
-    roots = []
-    prime_factors = prime_factors_brents(p - 1)
+
+    prime_factors = set(prime_factors_brents(p - 1))
+    powers = {(p - 1) // pf for pf in prime_factors}
+    lowest_root = None
     for g in range(2, p):
-        if all(square_exponentiation(g, (p - 1) // prime, p) != 1 for prime in prime_factors):
-            roots.append(g)
-    return roots
+        for prime in prime_factors:
+            if g % prime == 0:
+                break
+        else:
+            for power in powers:
+                if square_exponentiation(g, power, p) == 1:
+                    break
+            else:
+                lowest_root = g
+                break
+
+    if lowest_root is None:
+        return []
+
+    roots = {lowest_root}
+    for m in range(2, p):
+        if euclidean_alg_gcd(m, p - 1) == 1:
+            roots.add(square_exponentiation(lowest_root, m, p))
+    return list(roots)
+
+
+# def get_a_primitive_root(p: int) -> int:
+#     return choice(get_primitive_roots(p))
 
 
 def get_a_primitive_root(p: int) -> int:
-    return choice(get_primitive_roots(p))
+    if p == 2:
+        return 1
+
+    prime_factors = set(prime_factors_brents(p - 1))
+    powers = {(p - 1) // pf for pf in prime_factors}
+
+    tried = set()
+    while True:
+        g = randint(2, p - 1)
+        if g in tried:
+            continue
+        tried.add(g)
+        for prime in prime_factors:
+            if g % prime == 0:
+                break
+        else:
+            for power in powers:
+                if square_exponentiation(g, power, p) == 1:
+                    break
+            else:
+                return g
 
 
 def optimal_asymmetric_encryption_padding(message: str | int, seed: str = None, ret_string: bool = False) -> tuple[tuple[int, int, int], str | int]:
@@ -1243,7 +1369,7 @@ def optimal_asymmetric_encryption_unpadding(message: str | int, encoded_block_le
     seed = ''.join([str(int(bit) ^ next(mgf_db)) for bit in masked_seed])
     mgf_seed = lsfr(len(seed), [2, 3, 5], seed, len(masked_db) + 1)
     datablock = ''.join([str(int(bit) ^ next(mgf_seed)) for bit in masked_db])
-    message = int(datablock[hash_length + padding_len:], 2)
+    message = int(datablock[hash_length + padding_len :], 2)
     return (number_to_string(message), number_to_string(int(seed, 2))) if ret_string else (message, seed)
 
 
@@ -1253,7 +1379,7 @@ def generate_diffie_hellman_keys(q: int = None, alpha: int = None, xa: int = Non
         q = generate_prime_miller(bit_size)
 
     if not alpha:
-        alpha = get_a_primitive_root(q)
+        alpha = get_first_result(get_a_primitive_root, q, timeout=2)
 
     # Party 1 variables
     if not xa:
@@ -1279,7 +1405,7 @@ def generate_diffie_hellman_keys_verbose(q: int = None, alpha: int = None, xa: i
         q = generate_prime_miller(bit_size)
 
     if not alpha:
-        alpha = get_a_primitive_root(q)
+        alpha = get_first_result(get_a_primitive_root, q, timeout=2)
 
     print(f'\tq={q}, ɑ={alpha}')
 
@@ -1395,9 +1521,9 @@ def tonelli_shanks(n, p):
         while square_exponentiation(t, 2**i, p) != 1:
             i += 1
 
-        b = square_exponentiation(c, 2**(m - i - 1), p)
+        b = square_exponentiation(c, 2 ** (m - i - 1), p)
         m = i
-        b_sq = (b * b)
+        b_sq = b * b
         c = b_sq % p
         t = (t * b_sq) % p
         r = (r * b) % p
@@ -1413,10 +1539,10 @@ class Point:
         self.y = y
 
     def __str__(self) -> str:
-        return f"({self.x}, {self.y})"
+        return f'({self.x}, {self.y})'
 
     def __repr__(self) -> str:
-        return f"({self.x}, {self.y})"
+        return f'({self.x}, {self.y})'
 
     def __eq__(self, other) -> bool:
         if isinstance(other, Point):
@@ -1441,20 +1567,20 @@ class EllipticCurve:
         self.__order = 0
         self.__generator = None
 
-        if (4 * (a ** 3) + 27 * (b ** 2)) % p == 0:
-            raise ValueError("This curve is singular")
+        if (4 * (a**3) + 27 * (b**2)) % p == 0:
+            raise ValueError('This curve is singular')
 
     def __str__(self) -> str:
         ax = (f'{self.__a}x + ' if self.__a != 1 else 'x + ') if self.__a >= 1 else ''
         b = str(self.__b) if self.__b >= 1 else ''
-        return f"y² = x³ + {ax}{b} (mod {self.__p})"
+        return f'y² = x³ + {ax}{b} (mod {self.__p})'
 
     def __repr__(self) -> str:
         ax = (f'{self.__a}x + ' if self.__a != 1 else 'x + ') if self.__a >= 1 else ''
         b = str(self.__b) if self.__b >= 1 else ''
-        return f"y² = x³ + {ax}{b} (mod {self.__p})"
+        return f'y² = x³ + {ax}{b} (mod {self.__p})'
 
-    @cache
+    # @cache
     def add_points(self, p1, p2) -> Point:
         if p1 == Point.INF:
             return p2
@@ -1469,12 +1595,12 @@ class EllipticCurve:
                 return Point(Point.INF)
             if p1.y == 0:
                 return Point(Point.INF)
-            s = ((((3 * (p1.x ** 2)) + self.__a) % self.__p) * fast_inverse_mod((2 * p1.y), self.__p)) % self.__p
-        x3 = ((s ** 2) - p1.x - p2.x) % self.__p
+            s = ((((3 * (p1.x**2)) + self.__a) % self.__p) * fast_inverse_mod((2 * p1.y), self.__p)) % self.__p
+        x3 = ((s**2) - p1.x - p2.x) % self.__p
         y3 = (s * (p1.x - x3) - p1.y) % self.__p
         return Point(x3, y3)
 
-    @cache
+    # @cache
     def multiply_point(self, p: Point, n: int) -> Point:
         if n == 0:
             return Point.INF
@@ -1498,7 +1624,7 @@ class EllipticCurve:
     def get_points_naive(self):
         if len(self.__points) > 0:
             return self.__points
-        points = [Point(x, y) for x in range(self.__p) for y in range(self.__p) if (y ** 2) % self.__p == (x ** 3 + self.__a * x + self.__b) % self.__p]
+        points = [Point(x, y) for x in range(self.__p) for y in range(self.__p) if (y**2) % self.__p == (x**3 + self.__a * x + self.__b) % self.__p]
         self.__order = len(points) + 1
         self.__points = points
         # xis = []
@@ -1521,7 +1647,7 @@ class EllipticCurve:
             i = 2
             while self.multiply_point(point, i) != Point.INF:
                 p = self.multiply_point(point, i)
-                print(f"{point} * {i} = {p}, {self.__order}, {self.__p}")
+                print(f'{point} * {i} = {p}, {self.__order}, {self.__p}')
                 i += 1
             if i == self.__order:
                 gens.append(point)
@@ -1529,8 +1655,8 @@ class EllipticCurve:
         return gens
 
     def get_first_generator_naive(self):
-        points = [Point(x, y) for x in range(2 * int(self.__p ** 0.5 + 1)) for y in range(2 * int(self.__p ** 0.5 + 1)) if (y ** 2) % self.__p == (x ** 3 + self.__a * x + self.__b) % self.__p]
-        order_range = range((self.__p + 1) - int((2 * self.__p ** 0.5)), (self.__p + 1) + int((2 * self.__p ** 0.5) + 1))
+        points = [Point(x, y) for x in range(2 * int(self.__p**0.5 + 1)) for y in range(2 * int(self.__p**0.5 + 1)) if (y**2) % self.__p == (x**3 + self.__a * x + self.__b) % self.__p]
+        order_range = range((self.__p + 1) - int((2 * self.__p**0.5)), (self.__p + 1) + int((2 * self.__p**0.5) + 1))
         for point in points:
             i = 2
             while self.multiply_point(point, i) != Point.INF:
@@ -1557,7 +1683,7 @@ def diffie_hellman_kex_ec(a: int = None, b: int = None, bit_size: int = 16) -> t
         except ValueError:
             pass
 
-    order = (p + 1) - int((2 * p ** 0.5))
+    order = (p + 1) - int((2 * p**0.5))
 
     if a is None and b is None:
         a = randint(2, p - 1)
@@ -1621,8 +1747,8 @@ def time_square_exp():
     runs = 5
     rounds = 10
     scalar = 88
-    max_val = 10 ** scalar
-    min_val = 9 ** scalar
+    max_val = 10**scalar
+    min_val = 9**scalar
     seed(scalar)
     for i in range(rounds):
         numbers = [randint(min_val, max_val), randint(min_val, max_val), randint(min_val, max_val)]
@@ -1632,12 +1758,13 @@ def time_square_exp():
 
 def time_crt(compare_builtin: bool = False):
     import sys
-    sys.setrecursionlimit(10 ** 6)
+
+    sys.setrecursionlimit(10**6)
     runs = 5
     rounds = 20
     scalar = 1
-    max_val = 10 ** scalar
-    min_val = 6 ** scalar
+    max_val = 10**scalar
+    min_val = 6**scalar
     seed(scalar)
 
     f2 = crt_builtin if compare_builtin else crt_default
@@ -1647,24 +1774,345 @@ def time_crt(compare_builtin: bool = False):
         compare_function_times(runs, chinese_remainder_theorem, f2, numbers[0], numbers[1], numbers[2], numbers[3])
 
 
+class FirstThreadProcess:
+    """
+    A class that spawns a new process that runs a function in multiple threads.
+    Once the first thread completes, the process is terminated, killing all of its threads.
+    This process passes the result of the first thread to the process that spawned it.
+    """
+
+    def __init__(self, target, args=(), kwargs=None, num_threads=2):
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs if kwargs is not None else {}
+        self.num_threads = num_threads
+        self.result_pipe_parent, self.result_pipe_child = Pipe()
+        self.process = Process(target=self._run_in_process)
+
+    def _run_in_process(self):
+        # Start multiple threads to run self.target
+        threads = []
+        result_queue = Queue()
+        stop_event = threading.Event()
+        for _ in range(self.num_threads):
+            t = threading.Thread(target=self._thread_wrapper, args=(result_queue, stop_event))
+            threads.append(t)
+            t.start()
+
+        # Wait for the first result
+        result = result_queue.get()  # This will block until the first result is available
+        # Send the result back to the parent process
+        self.result_pipe_child.send(result)
+        # Signal other threads to stop
+        stop_event.set()
+        # Terminate the process
+        _exit(0)
+
+    def _thread_wrapper(self, result_queue, stop_event):
+        if stop_event.is_set():
+            return
+        result = self.target(*self.args, **self.kwargs)
+        if not stop_event.is_set():
+            try:
+                result_queue.put(result, block=False)
+            except Full:
+                pass  # Another thread already put a result
+            # Signal other threads to stop
+            stop_event.set()
+
+    def start(self):
+        self.process.start()
+
+    def join(self):
+        self.process.join()
+
+    def get_result(self):
+        # Wait for the result from the child process
+        result = self.result_pipe_parent.recv()
+        return result
+
+
+def generate_rsa_key_pair_t(bits: int = 1024, e: int = 65537):
+    """
+    Use all cpu cores to generate RSA key pair
+    """
+    half_bits = bits // 2
+    if e is None:
+        # 2**16 < e < 2**256
+        e = SystemRandom().randrange(0x10001, 0x10000000000000000000000000000000000000000000000000000000000000000, 2)
+    tm = ThreadManager(generate_rsa_key_pair_instance, half_bits, e)
+    result = {}
+
+    def set_result(first_result):
+        result[0] = first_result
+
+    tm.run(set_result)
+    return result[0]
+
+
+def generate_rsa_key_pair_t2(bits: int = 1024, e: int = 65537):
+    """
+    Use all cpu cores to generate RSA key pair
+    """
+    half_bits = bits // 2
+    if e is None:
+        e = SystemRandom().randrange(2**16 + 1, 2**256, 2)
+    tm = FirstThreadProcess(target=generate_rsa_key_pair_instance, args=(half_bits, e))
+    tm.start()
+    return tm.get_result()
+
+
 def main():
-    i = 0
-    for long in generate_random_bits_nlsfr(3):
-        print(long, end='')
-        if i == 12 * 2:
-            break
-        i += 1
+    # import gc
+    # gc.disable()
 
-    # degree = 4  # number of 'boxes' or exponent of first term in poly
-    # gates = [3, 2, 1, 0] # exponent of each term after first in order left to right
-    # init_state = '1111' # initial state of the register, left to right
-    # how_many_lines_to_output = (2 ** degree) - 1 # how many lines to output
-    # verbose = True # print table as as generator is looped through
+    runs = 10
+    times = []
+    from random import seed
 
-    # # just call list to loop through all output.
-    # list(lsfr(degree, gates, init_state, how_many_lines_to_output, verbose))
+    seed(1)
+    for i in range(runs):
+        t1 = perf_counter()
+        res = generate_rsa_key_pair_t2(2048)
+        t2 = perf_counter()
+        print(f'Round {i + 1}/{runs} - {t2 - t1:.9f}s')
+        times.append(t2 - t1)
+        # gc.collect()
+    print(f'Average time: {sum(times) / runs:.9f}s')
+    exit()
+    # @cache
+    # def get_byte_by_index(index: int) -> int:
+    #     start = 10 + 10 * index + 1
+    #     end = start + 9
+    #     # print(f'{index:<10} - [{start}, {end}]')
+    #     primes = set(sp.primerange(start, end))
+    #     return int(''.join([str(int(i in primes)) for i in range(start, end, 2) if i % 5]), 2)
+
+    # from pprint import pprint
+    # start = 0
+    # end = 50e6
+    # orders = {}
+    # t1 = 0
+    # t2 = 0
+    # for i in range(int(start), int(end)):
+    #     if not t1:
+    #         t1 = perf_counter()
+    #     if i % 1000000 == 0:
+    #         t2 = perf_counter()
+    #         delta = t2 - t1
+    #         print(f'({i}/{int(end)}) - {i / end * 100:.2f}% - {delta:.2f}s')
+    #         print(f'ETA: {delta * ((int(end) - i) / 1000000) / 60:.2f}m')
+    #         print()
+    #         t1 = 0
+    #     idx_val = get_byte_by_index(i)
+    #     next_val = get_byte_by_index(i + 1)
+    #     if (idx_val, next_val) in orders and len(orders[(idx_val, next_val)]) == 16:
+    #         continue
+    #     next_next_val = get_byte_by_index(i + 2)
+    #     if (idx_val, next_val) not in orders:
+    #         orders[(idx_val, next_val)] = set()
+    #     orders[(idx_val, next_val)].add(next_next_val)
+
+    # ordered = {k: list(sorted(v)) for k, v in orders.items()}
+    # pprint(ordered)
+    # exit()
+
+    prev_possible_values = {
+        0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        1: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        2: [0, 1, 2, 4, 5, 8, 10],
+        3: [0, 2, 8, 10],
+        4: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        5: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        6: [0, 2, 8, 10],
+        7: [0, 2, 8, 10],
+        8: [0, 1, 2, 4, 5, 8, 10],
+        9: [0, 2, 8, 10],
+        10: [0, 1, 2, 4, 5, 8, 10],
+        11: [0, 2, 8, 10],
+        12: [0, 2, 8, 10],
+        13: [0, 2, 8, 10],
+        14: [0, 2, 8, 10],
+        15: [0, 2, 8, 10],
+    }
+
+    next_possible_values = {
+        0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        1: [0, 1, 2, 4, 5, 8, 10],
+        2: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        3: [0, 1, 4, 5],
+        4: [0, 1, 2, 4, 5, 8, 10],
+        5: [0, 1, 2, 4, 5, 8, 10],
+        6: [0, 1, 4, 5],
+        7: [0, 1, 4, 5],
+        8: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        9: [0, 1, 4, 5],
+        10: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        11: [0, 1, 4, 5],
+        12: [0, 1, 4, 5],
+        13: [0, 1, 4, 5],
+        14: [0, 1, 4, 5],
+        15: [0, 1, 4, 5],
+    }
+
+    # (ith, i+1) -> [possible values]
+    # Does seem to present distinct orders?
+    # Also may just be not enough data to break the pattern
+    next_next_possible_values = {
+        (0, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (0, 1): [0, 1, 2, 4, 5, 8, 10],
+        (0, 2): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (0, 3): [0, 1, 4, 5],
+        (0, 4): [0, 1, 2, 4, 5, 8, 10],
+        (0, 5): [0, 1, 2, 4, 5, 8, 10],
+        (0, 6): [0, 1, 4, 5],
+        (0, 7): [0, 1, 4, 5],
+        (0, 8): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (0, 9): [0, 1, 4, 5],
+        (0, 10): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (0, 11): [0, 1, 4, 5],
+        (0, 12): [0, 1, 4, 5],
+        (0, 13): [0, 1, 4, 5],
+        (0, 14): [0, 1, 4, 5],
+        (0, 15): [0, 1, 4, 5],
+        (1, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (1, 1): [0, 2, 8, 10],
+        (1, 2): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (1, 4): [0, 2, 8, 10],
+        (1, 5): [0, 2, 8, 10],
+        (1, 8): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (1, 10): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (2, 0): [0, 1, 2, 4, 5, 8, 10],
+        (2, 1): [0, 1, 2, 4, 5, 8, 10],
+        (2, 2): [0, 1, 4, 5],
+        (2, 3): [0, 1, 4, 5],
+        (2, 4): [0, 1, 2, 4, 5, 8, 10],
+        (2, 5): [0, 1, 2, 4, 5, 8, 10],
+        (2, 6): [0, 1, 4, 5],
+        (2, 7): [0, 1, 4, 5],
+        (2, 8): [0, 1, 4, 5],
+        (2, 9): [0, 1, 4, 5],
+        (2, 10): [0, 1, 4, 5],
+        (2, 11): [0, 1, 4, 5],
+        (2, 12): [0, 1, 4, 5],
+        (2, 13): [0, 1, 4, 5],
+        (2, 14): [0, 1, 4, 5],
+        (2, 15): [0, 1, 4, 5],  # 0145 assumed for (2, 15)
+        (3, 0): [0, 2, 8, 10],
+        (3, 1): [0, 2, 8, 10],
+        (3, 4): [0, 2, 8, 10],
+        (3, 5): [0, 2, 8, 10],
+        (4, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (4, 1): [0, 2, 8, 10],
+        (4, 2): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (4, 4): [0, 2, 8, 10],
+        (4, 5): [0, 2, 8, 10],
+        (4, 8): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (4, 10): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (5, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (5, 1): [0, 2, 8, 10],
+        (5, 2): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (5, 4): [0, 2, 8, 10],
+        (5, 5): [0, 2, 8, 10],
+        (5, 8): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (5, 10): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        (6, 0): [0, 2, 8, 10],
+        (6, 1): [0, 2, 8, 10],
+        (6, 4): [0, 2, 8, 10],
+        (6, 5): [0, 2, 8, 10],
+        (7, 0): [0, 2, 8, 10],
+        (7, 1): [0, 2, 8, 10],
+        (7, 4): [0, 2, 8, 10],
+        (7, 5): [0, 2, 8, 10],
+        (8, 0): [0, 1, 2, 4, 5, 8, 10],
+        (8, 1): [0, 1, 2, 4, 5, 8, 10],
+        (8, 2): [0, 1, 4, 5],
+        (8, 3): [0, 1, 4, 5],
+        (8, 4): [0, 1, 2, 4, 5, 8, 10],
+        (8, 5): [0, 1, 2, 4, 5, 8, 10],
+        (8, 6): [0, 1, 4, 5],
+        (8, 7): [0, 1, 4, 5],
+        (8, 8): [0, 1, 4, 5],
+        (8, 9): [0, 1, 4, 5],
+        (8, 10): [0, 1, 4, 5],
+        (8, 11): [0, 1, 4, 5],
+        (8, 12): [0, 1, 4, 5],
+        (8, 13): [0, 1, 4, 5],
+        (8, 14): [0, 1, 4, 5],
+        (8, 15): [0, 1, 4, 5],
+        (9, 0): [0, 2, 8, 10],
+        (9, 1): [0, 2, 8, 10],
+        (9, 4): [0, 2, 8, 10],
+        (9, 5): [0, 2, 8, 10],
+        (10, 0): [0, 1, 2, 4, 5, 8, 10],
+        (10, 1): [0, 1, 2, 4, 5, 8, 10],
+        (10, 2): [0, 1, 4, 5],
+        (10, 3): [0, 1, 4, 5],
+        (10, 4): [0, 1, 2, 4, 5, 8, 10],
+        (10, 5): [0, 1, 2, 4, 5, 8, 10],
+        (10, 6): [0, 1, 4, 5],
+        (10, 7): [0, 1, 4, 5],
+        (10, 8): [0, 1, 4, 5],
+        (10, 9): [0, 1, 4, 5],
+        (10, 10): [0, 1, 4, 5],
+        (10, 11): [0, 1, 4, 5],
+        (10, 12): [0, 1, 4, 5],
+        (10, 13): [0, 1, 4, 5],
+        (10, 14): [0, 1, 4, 5],
+        (10, 15): [0, 1, 4, 5],  # 0145 assumed for (10, 15)
+        (11, 0): [0, 2, 8, 10],
+        (11, 1): [0, 2, 8, 10],
+        (11, 4): [0, 2, 8, 10],
+        (11, 5): [0, 2, 8, 10],
+        (12, 0): [0, 2, 8, 10],
+        (12, 1): [0, 2, 8, 10],
+        (12, 4): [0, 2, 8, 10],
+        (12, 5): [0, 2, 8, 10],
+        (13, 0): [0, 2, 8, 10],
+        (13, 1): [0, 2, 8, 10],
+        (13, 4): [0, 2, 8, 10],
+        (13, 5): [0, 2, 8, 10],
+        (14, 0): [0, 2, 8, 10],
+        (14, 1): [0, 2, 8, 10],
+        (14, 4): [0, 2, 8, 10],
+        (14, 5): [0, 2, 8, 10],
+        (15, 0): [0, 2, 8, 10],
+        (15, 1): [0, 2, 8, 10],
+        (15, 4): [0, 2, 8, 10],
+        (15, 5): [0, 2, 8, 10],
+    }
+    """
+    ( 1, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    ( 2, 0): [0, 1, 2,    4, 5,       8,    10                    ],
+    ( 3, 0): [0,    2,                8,    10                    ],
+    ( 4, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    ( 5, 0): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    ( 6, 0): [0,    2,                8,    10                    ],
+    ( 7, 0): [0,    2,                8,    10                    ],
+    ( 8, 0): [0, 1, 2,    4, 5,       8,    10                    ],
+    ( 9, 0): [0,    2,                8,    10                    ],
+    (10, 0): [0, 1, 2,    4, 5,       8,    10                    ],
+    (11, 0): [0,    2,                8,    10                    ],
+    (12, 0): [0,    2,                8,    10                    ],
+    (13, 0): [0,    2,                8,    10                    ],
+    (14, 0): [0,    2,                8,    10                    ],
+    (15, 0): [0,    2,                8,    10                    ]
+    """
+
+    # prev_possible_values = {i: [] for i in range(16)}
+    for i in range(16):
+        for k in range(16):
+            if (i, k) in next_next_possible_values:
+                next_next_vals = next_next_possible_values[(i, k)]
+                next_vals = next_possible_values[k]
+                if next_vals != next_next_vals:
+                    print(f'({i}, {k})')
+                    print(f'Next     : {next_vals}')
+                    print(f'Next-Next: {next_next_vals}')
+                    print(f'Prev     : {prev_possible_values[i]}')
+                    print()
+    exit()
 
 
-
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()

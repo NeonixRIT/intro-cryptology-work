@@ -1,4 +1,4 @@
-'''
+"""
 A collision attack published in 2007 can find collisions for full MD4 in less than 2 hash operations.
 
 test vectors
@@ -190,36 +190,27 @@ Step 5. Output
 
     This completes the description of MD4.  A reference
     implementation in C is given in the Appendix.
-'''
+"""
 
-MOD = 0x100000000
+ANDY = 0xFFFFFFFF
 BLOCK_SIZE = 64
 
 
-def bytes_to_int(b: bytes) -> int:
-    int_value = 0
-    for i in range(len(b)):
-        int_value = int_value * 256 + int(b[i])
-    return int_value
-
-
-def int_to_bytes(number: int, size: int) -> bytes:
-    num_bytes = (number.bit_length() + 7) // 8
-    little_endian_bytes = bytearray(num_bytes)
-    for i in range(num_bytes):
-        little_endian_bytes[i] = (number >> (8 * i)) & 0xFF
-    return bytes(little_endian_bytes) + (b'\x00' * (size - num_bytes))
+def int_to_bytes(number: int, size: int = None, endian: str = 'little', signed=False) -> bytes:
+    if size is None:
+        size = (number.bit_length() + 7) // 8
+    return number.to_bytes(size, endian, signed=signed)
 
 
 def rotl(num: int, bits: int, zfill_len: int):
-    bits %= zfill_len
-    if bits == 0:
-        return num
+    # bits %= zfill_len
+    # if bits == 0:
+    #     return num
     return (num << bits) | (num >> (zfill_len - bits))
 
 
 def pad(data: bytes) -> bytes:
-    '''
+    """
     Step 1. Append padding bits
         The message is "padded" (extended) so that its length (in bits)
         is congruent to 448, modulo 512.  That is, the message is
@@ -245,9 +236,9 @@ def pad(data: bytes) -> bytes:
         Equivalently, this message has a length that is an exact
         multiple of 16 (32-bit) words.  Let M[0 ... N-1] denote the
         words of the resulting message, where N is a multiple of 16.
-    '''
+    """
     input_len = len(data)
-    input_len_bytes = int_to_bytes(((input_len * 8) % (2 ** 64)), 8)[:8]
+    input_len_bytes = int_to_bytes(((input_len * 8) % (2**64)), 8)[:8]
     padding_len = abs(BLOCK_SIZE - ((input_len + 9) % BLOCK_SIZE))
     padding = (b'\x80' + (b'\x00' * padding_len)) + (input_len_bytes)
     padding += b'\x00' * (8 - len(input_len_bytes))
@@ -256,7 +247,7 @@ def pad(data: bytes) -> bytes:
 
 
 def f(X: int, Y: int, Z: int):
-    '''
+    """
     X, Y, Z are 32-bit words
     output is a 32-bit word
 
@@ -264,54 +255,54 @@ def f(X: int, Y: int, Z: int):
     (X & Y) + ((~X) & Z)
     In each bit position acts as a conditional:
         if x then y else z # y if x else z
-    '''
+    """
     return (X & Y) | (~X & Z)
 
 
 def ff(A, B, C, D, X, i, s):
-    '''
+    """
     A = (A + f(B,C,D) + X[i]) <<< s
-    '''
-    return rotl((A + f(B, C, D) + X[i]) % MOD, s, 32)
+    """
+    return rotl((A + f(B, C, D) + X[i]) & ANDY, s, 32)
 
 
 def g(X, Y, Z):
-    '''
+    """
     g(X, Y, Z)  =  XY v XZ v YZ
     (X & Y) | (X & Z) | (Y & Z)
     In each bit position acts as a majority function:
         if at least two of x, y, z are on, then g has a one in that bit
         position, else g has a zero.
-    '''
+    """
     return (X & Y) | (X & Z) | (Y & Z)
 
 
 def gg(A, B, C, D, X, i, s):
-    '''
+    """
     A = (A + g(B,C,D) + X[i] + 5A827999) <<< s
-    '''
-    return rotl((A + g(B, C, D) + X[i] + 0x5A827999) % MOD, s, 32)
+    """
+    return rotl((A + g(B, C, D) + X[i] + 0x5A827999) & ANDY, s, 32)
 
 
 def h(X, Y, Z):
-    '''
+    """
     h(X, Y, Z)  =  X xor Y xor Z
     X ^ Y ^ Z
     The function h is the bit-wise "xor" or "parity" function:
         it has properties similar to those of f and g.
-    '''
+    """
     return X ^ Y ^ Z
 
 
 def hh(A, B, C, D, X, i, s):
-    '''
+    """
     A = (A + h(B,C,D) + X[i] + 6ED9EBA1) <<< s
-    '''
-    return rotl((A + h(B, C, D) + X[i] + 0x6ED9EBA1) % MOD, s, 32)
+    """
+    return rotl((A + h(B, C, D) + X[i] + 0x6ED9EBA1) & ANDY, s, 32)
 
 
 def md4(data: bytes) -> int:
-    '''
+    """
     Step 3. Initialize MD buffer
     A 4-word buffer (A,B,C,D) is used to compute the message
     digest.  Here each of A,B,C,D are 32-bit registers.  These
@@ -322,18 +313,21 @@ def md4(data: bytes) -> int:
     word B:    89 ab cd ef
     word C:    fe dc ba 98
     word D:    76 54 32 10
-    '''
+    """
     padded_data = pad(data)
     blocks = (
         [
-            padded_data[j * BLOCK_SIZE: (j + 1) * BLOCK_SIZE][i] | padded_data[j * BLOCK_SIZE: (j + 1) * BLOCK_SIZE][i + 1] << 8 | padded_data[j * BLOCK_SIZE: (j + 1) * BLOCK_SIZE][i + 2] << 16 | padded_data[j * BLOCK_SIZE: (j + 1) * BLOCK_SIZE][i + 3] << 24
-            for i in range(0, len(padded_data[j * BLOCK_SIZE: (j + 1) * BLOCK_SIZE]), 4)
+            padded_data[j * BLOCK_SIZE : (j + 1) * BLOCK_SIZE][i]
+            | padded_data[j * BLOCK_SIZE : (j + 1) * BLOCK_SIZE][i + 1] << 8
+            | padded_data[j * BLOCK_SIZE : (j + 1) * BLOCK_SIZE][i + 2] << 16
+            | padded_data[j * BLOCK_SIZE : (j + 1) * BLOCK_SIZE][i + 3] << 24
+            for i in range(0, len(padded_data[j * BLOCK_SIZE : (j + 1) * BLOCK_SIZE]), 4)
         ]
         for j in range((int(len(padded_data) + 0.5) // BLOCK_SIZE))
     )
 
-    A, B, C, D = 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476
-    for X in blocks: # process each 16-word block (512 bits)
+    A, B, C, D = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+    for X in blocks:  # process each 16-word block (512 bits)
         AA, BB, CC, DD = A, B, C, D
 
         # Round 1
@@ -354,24 +348,29 @@ def md4(data: bytes) -> int:
         for i, idx in enumerate(idxs):
             A, B, C, D = D, hh(A, B, C, D, X, idx, S[i % 4]), B, C
 
-        A = (A + AA) % MOD
-        B = (B + BB) % MOD
-        C = (C + CC) % MOD
-        D = (D + DD) % MOD
+        A = (A + AA) & ANDY
+        B = (B + BB) & ANDY
+        C = (C + CC) & ANDY
+        D = (D + DD) & ANDY
     return A | B << 32 | C << 64 | D << 96
 
 
 if __name__ == '__main__':
-    print(int_to_bytes(md4(b''), 16).hex().upper() == '31D6CFE0D16AE931B73C59D7E0C089C0')
-    print(int_to_bytes(md4(b'a'), 16).hex().upper() == 'bde52cb31de33e46245e05fbdbd6fb24'.upper())
-    print(int_to_bytes(md4(b'abc'), 16).hex().upper() == 'A448017AAF21D8525FC10AE87AA6729D')
-    print(int_to_bytes(md4(b'message digest'), 16).hex().upper() == 'D9130A8164549FE818874806E1C7014B')
-    print(int_to_bytes(md4(b'abcdefghijklmnopqrstuvwxyz'), 16).hex().upper() == 'D79E1C308AA5BBCDEEA8ED63DF412DA9')
-    print(int_to_bytes(md4(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'), 16).hex().upper() == '043F8582F241DB351CE627E153E7F0E4')
-    print(int_to_bytes(md4(b'12345678901234567890123456789012345678901234567890123456789012345678901234567890'), 16).hex().upper() == 'E33B4DDC9C38F2199C3E7B164FCC0536')
-    k1 = md4(b'\x83\x9c\x7a\x4d\x7a\x92\xcb\x56\x78\xa5\xd5\xb9\xee\xa5\xa7\x57\x3c\x8a\x74\xde\xb3\x66\xc3\xdc\x20\xa0\x83\xb6\x9f\x5d\x2a\x3b\xb3\x71\x9d\xc6\x98\x91\xe9\xf9\x5e\x80\x9f\xd7\xe8\xb2\x3b\xa6\x31\x8e\xdd\x45\xe5\x1f\xe3\x97\x08\xbf\x94\x27\xe9\xc3\xe8\xb9')
-    k2 = md4(b'\x83\x9c\x7a\x4d\x7a\x92\xcb\xd6\x78\xa5\xd5\x29\xee\xa5\xa7\x57\x3c\x8a\x74\xde\xb3\x66\xc3\xdc\x20\xa0\x83\xb6\x9f\x5d\x2a\x3b\xb3\x71\x9d\xc6\x98\x91\xe9\xf9\x5e\x80\x9f\xd7\xe8\xb2\x3b\xa6\x31\x8e\xdc\x45\xe5\x1f\xe3\x97\x08\xbf\x94\x27\xe9\xc3\xe8\xb9')
-    print(k1 == k2)
+    from random import randbytes
+
+    for _ in range(1000):
+        pt = randbytes(1000)
+        res = md4(pt)
+    # print(int_to_bytes(md4(b''), 16).hex().upper() == '31D6CFE0D16AE931B73C59D7E0C089C0')
+    # print(int_to_bytes(md4(b'a'), 16).hex().upper() == 'bde52cb31de33e46245e05fbdbd6fb24'.upper())
+    # print(int_to_bytes(md4(b'abc'), 16).hex().upper() == 'A448017AAF21D8525FC10AE87AA6729D')
+    # print(int_to_bytes(md4(b'message digest'), 16).hex().upper() == 'D9130A8164549FE818874806E1C7014B')
+    # print(int_to_bytes(md4(b'abcdefghijklmnopqrstuvwxyz'), 16).hex().upper() == 'D79E1C308AA5BBCDEEA8ED63DF412DA9')
+    # print(int_to_bytes(md4(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'), 16).hex().upper() == '043F8582F241DB351CE627E153E7F0E4')
+    # print(int_to_bytes(md4(b'12345678901234567890123456789012345678901234567890123456789012345678901234567890'), 16).hex().upper() == 'E33B4DDC9C38F2199C3E7B164FCC0536')
+    # k1 = md4(b'\x83\x9c\x7a\x4d\x7a\x92\xcb\x56\x78\xa5\xd5\xb9\xee\xa5\xa7\x57\x3c\x8a\x74\xde\xb3\x66\xc3\xdc\x20\xa0\x83\xb6\x9f\x5d\x2a\x3b\xb3\x71\x9d\xc6\x98\x91\xe9\xf9\x5e\x80\x9f\xd7\xe8\xb2\x3b\xa6\x31\x8e\xdd\x45\xe5\x1f\xe3\x97\x08\xbf\x94\x27\xe9\xc3\xe8\xb9')
+    # k2 = md4(b'\x83\x9c\x7a\x4d\x7a\x92\xcb\xd6\x78\xa5\xd5\x29\xee\xa5\xa7\x57\x3c\x8a\x74\xde\xb3\x66\xc3\xdc\x20\xa0\x83\xb6\x9f\x5d\x2a\x3b\xb3\x71\x9d\xc6\x98\x91\xe9\xf9\x5e\x80\x9f\xd7\xe8\xb2\x3b\xa6\x31\x8e\xdc\x45\xe5\x1f\xe3\x97\x08\xbf\x94\x27\xe9\xc3\xe8\xb9')
+    # print(k1 == k2)
     # NTHash has is just the password encoded in UTF-16LE and hashed with MD4
     # print(int_to_bytes(md4('NewStudent123'.encode('UTF-16LE'))).hex().upper())
     # LM Hash used TDES

@@ -1,6 +1,7 @@
-'''
+"""
 DEPRECATED
-'''
+"""
+
 from key import Key
 from stream_cipher import StreamCipher
 
@@ -54,22 +55,38 @@ def main():
     time_cipher(c1, False)
 
     sub_key = {
-        'A': 'Z', 'B': 'Y', 'C': 'X',
-        'D': 'W', 'E': 'V', 'F': 'U',
-        'G': 'T', 'H': 'S', 'I': 'R',
-        'J': 'Q', 'K': 'P', 'L': 'O',
-        'M': 'N', 'N': 'M', 'O': 'L',
-        'P': 'K', 'Q': 'J', 'R': 'I',
-        'S': 'H', 'T': 'G', 'U': 'F',
-        'V': 'E', 'W': 'D', 'X': 'C',
-        'Y': 'B', 'Z': 'A',
+        'A': 'Z',
+        'B': 'Y',
+        'C': 'X',
+        'D': 'W',
+        'E': 'V',
+        'F': 'U',
+        'G': 'T',
+        'H': 'S',
+        'I': 'R',
+        'J': 'Q',
+        'K': 'P',
+        'L': 'O',
+        'M': 'N',
+        'N': 'M',
+        'O': 'L',
+        'P': 'K',
+        'Q': 'J',
+        'R': 'I',
+        'S': 'H',
+        'T': 'G',
+        'U': 'F',
+        'V': 'E',
+        'W': 'D',
+        'X': 'C',
+        'Y': 'B',
+        'Z': 'A',
     }
-    c2 = SubCipher(plain_text="HELLO THIS IS A TEST", key=sub_key)
+    c2 = SubCipher(plain_text='HELLO THIS IS A TEST', key=sub_key)
     time_cipher(c2, False)
 
     t = 'svunhnvpuhaptlmvynvaaluhwylalyuhabyhslcluaaoyldaolzlhzvuzvbavmihshujlpuhshukdolylzbttlyzjhushzakljhklzhukdpualyzhspmlaptlayvbislpziyldpun'.upper()
     ShiftCipher(cipher_text=t).get_key()
-
 
     c3 = PermCipher(plain_text='substitutionciphersaretooeasytobreak'.upper(), key={1: 3, 2: 4, 3: 2, 4: 1, 5: 5})
     time_cipher(c3, False)
@@ -87,7 +104,7 @@ def main():
     c7 = HillCipher(plain_text='help'.upper(), cipher_text='xfib'.upper())
     time_cipher(c7, True, 2)
 
-    c8 = BBSCipher(plain_text='SOMETHING', key=BBSKey(49 ** 13, '101010'))
+    c8 = BBSCipher(plain_text='SOMETHING', key=BBSKey(49**13, '101010'))
     time_cipher(c8, False)
 
     # Key/Nonce is generated to be psuedorandom bits of set length

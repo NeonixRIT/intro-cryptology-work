@@ -4,6 +4,7 @@ import sympy as sp
 from cipher import Cipher
 from math import gcd
 
+
 def symmetric_alg(text: str, key: tuple, encrypt=True) -> str:
     res = ''
     for letter in text:

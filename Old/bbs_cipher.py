@@ -25,7 +25,7 @@ def bbs_ksg(key: BBSKey, length=1000):
     n = key.n
     xi = key.seed
     for _ in range(length):
-        xi = (xi ** 2) % n
+        xi = (xi**2) % n
         yield xi % 2
 
 

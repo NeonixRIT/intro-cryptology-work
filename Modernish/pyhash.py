@@ -309,16 +309,6 @@ def python_hash_range(data: range) -> int:
     step = data.step if length > 1 else None
     t = (length, start, step)
     return python_hash_tuple(t)
-    # if length == 0:
-    # else:
-    #     t = (length, data.start, None)
-    #     if length > 1:
-    #         t = (length, data.start, data.step)
-    #     else:
-    #         t = (length, data.start, None)
-    #     return python_hash_tuple(t)
-    # start = data.start if length > 0 else None
-    # step = data.step if length > 0 else None
 
 
 def python_hash_slice_part(com: int | None, acc: int):

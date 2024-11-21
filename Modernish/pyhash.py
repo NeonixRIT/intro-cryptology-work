@@ -529,6 +529,19 @@ def python_hash_none(data: None) -> int:
     return _u64tos(0xFCA86420)
 
 
+HASH_TYPES_AND_FUNCS = {
+    int: python_hash_integer,
+    bool: python_hash_boolean,
+    bytes: python_hash_bytes,
+    str: python_hash_string,
+    float: python_hash_double,
+    tuple: python_hash_tuple,
+    range: python_hash_range,
+    slice: python_hash_slice,
+    memoryview: python_hash_memoryview,
+}
+
+
 # Main hash function
 def python_hash(data: Any) -> int:
     """
@@ -545,39 +558,16 @@ def python_hash(data: Any) -> int:
         return python_hash_none(data)
 
     # unhashable types raise error
-    # isinstance(data, (list, dict, set, bytearray, memoryview))
-    if getattr(data, '__hash__', None) is None:
+    if isinstance(data, (list, dict, set, bytearray)) or getattr(data, '__hash__', None) is None:
         raise TypeError(f'unhashable type: {type(data).__name__}')
 
-    # Hashable base types
-    # TODO replace with dictionary
+    hash_types_and_funcs = HASH_TYPES_AND_FUNCS
     hash_value = 0
-    if isinstance(data, int):
-        hash_value = python_hash_integer(data)
-    elif isinstance(data, bool):
-        hash_value = python_hash_boolean(data)
-    elif isinstance(data, bytes):
-        hash_value = python_hash_bytes(data)
-    elif isinstance(data, str):
-        hash_value = python_hash_string(data)
-    elif isinstance(data, float):
-        hash_value = python_hash_double(data)
-    elif isinstance(data, tuple):
-        hash_value = python_hash_tuple(data)
-    elif isinstance(data, range):
-        hash_value = python_hash_range(data)
-    elif isinstance(data, slice):
-        hash_value = python_hash_slice(data)
-    elif isinstance(data, memoryview):
-        hash_value = python_hash_memoryview(data)
+    if type(data) in hash_types_and_funcs:
+        hash_value = hash_types_and_funcs[type(data)](data)
     elif isinstance(data, object):
         hash_value = python_hash_pointer(data)
-    else: # should never be reached since all data types should be objects
-        raise TypeError(f'unhashable type: {type(data).__name__}')
-
-    if hash_value == -1:
-        hash_value = -2
-    return hash_value
+    return hash_value if hash_value != -1 else -2
 
 
 # Compare builtin hash with this implementation of various types to ensure same hashes are computed

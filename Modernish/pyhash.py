@@ -363,7 +363,7 @@ def python_hash_complex(data: complex) -> int:
 
 
 def _shuffle_bits(h: int) -> int:
-    return (((h ^ 89869747) ^ (h << 16)) * 3644798167)
+    return ((h ^ 89869747) ^ (h << 16)) * 3644798167
 
 
 def python_hash_frozenset(data: frozenset) -> int:
@@ -371,7 +371,7 @@ def python_hash_frozenset(data: frozenset) -> int:
     for item in data:
         h ^= _shuffle_bits(python_hash(item))
 
-    h ^= ((len(data) + 1) * 1927868237)
+    h ^= (len(data) + 1) * 1927868237
 
     h ^= ((h >> 11) & HASH_ANDY) ^ ((h >> 25) & HASH_ANDY)
     h = (h * 69069 + 907133923) & HASH_ANDY
@@ -428,12 +428,13 @@ def main():
     """
     from random import seed, sample, randint
     from pkgutil import iter_modules
+
     seed(HASH_SEED)
 
-    test_base_types            = True #  Test (primitives, bytes, slice, tuple, str, range, memoryview, and object)
-    test_modules               = False #  Test hashing modules (uses object hash)
-    test_errors_and_exceptions = False #  Test hashing errors and exceptions (uses object hash)
-    test_restof_builtin_types  = False #  Test remainder of builtin types (uses object hash)
+    test_base_types = True  #  Test (primitives, bytes, slice, tuple, str, range, memoryview, and object)
+    test_modules = False  #  Test hashing modules (uses object hash)
+    test_errors_and_exceptions = False  #  Test hashing errors and exceptions (uses object hash)
+    test_restof_builtin_types = False  #  Test remainder of builtin types (uses object hash)
 
     def random_string(length: int) -> str:
         return ''.join(chr(SystemRandom().randrange(97, 123)) for _ in range(length))
@@ -441,6 +442,7 @@ def main():
     class TestObject:
         def __init__(self, name):
             self.name = name
+
         def __str__(self):
             return f'TestObject(name={self.name}, ptr=0x{id(self):08x})'
 
@@ -474,15 +476,33 @@ def main():
     rand_frozen_set2 = frozenset([sys_rand.randint(0, 11) for _ in range(sys_rand.randint(0, 11))])
     rand_frozen_set3 = frozenset([sys_rand.randint(0, 11) for _ in range(sys_rand.randint(0, 11))])
     base_type_objects = [
-        rand_string, rand_bytes, rand_int,
-        rand_double, rand_tup, rand_obj,
-        rand_range1, rand_range2, rand_range3,
-        none, bool_t, bool_f,
-        rand_slice1, rand_slice2, rand_slice3,
-        norm_slice1, norm_slice2, norm_slice3,
-        norm_slice4, rand_memoryview, rand_complex1,
-        rand_complex2, rand_complex3, rand_complex4,
-        rand_frozen_set1, rand_frozen_set2, rand_frozen_set3
+        rand_string,
+        rand_bytes,
+        rand_int,
+        rand_double,
+        rand_tup,
+        rand_obj,
+        rand_range1,
+        rand_range2,
+        rand_range3,
+        none,
+        bool_t,
+        bool_f,
+        rand_slice1,
+        rand_slice2,
+        rand_slice3,
+        norm_slice1,
+        norm_slice2,
+        norm_slice3,
+        norm_slice4,
+        rand_memoryview,
+        rand_complex1,
+        rand_complex2,
+        rand_complex3,
+        rand_complex4,
+        rand_frozen_set1,
+        rand_frozen_set2,
+        rand_frozen_set3,
     ]
 
     # Create Module objects (selects 3-8 random importable modules)
@@ -490,39 +510,90 @@ def main():
 
     # Create Error and Exception objects
     errors_and_exceptions = [
-        ArithmeticError, AssertionError, AttributeError, BaseException, BlockingIOError, BrokenPipeError, BufferError, BytesWarning,
-        ChildProcessError, ConnectionAbortedError, ConnectionError, ConnectionRefusedError, ConnectionResetError, DeprecationWarning, EOFError,
-        EncodingWarning, EnvironmentError, Exception, FileExistsError, FileNotFoundError, FloatingPointError, FutureWarning,
-        GeneratorExit, IOError, ImportError, ImportWarning, IndentationError, IndexError, InterruptedError, IsADirectoryError, KeyError,
-        KeyboardInterrupt, LookupError, MemoryError, ModuleNotFoundError, NameError, NotADirectoryError, NotImplementedError,
-        OSError, OverflowError, PendingDeprecationWarning, PermissionError, ProcessLookupError, RecursionError,
-        ReferenceError, ResourceWarning, RuntimeError, RuntimeWarning, StopAsyncIteration, StopIteration, SyntaxError, SyntaxWarning, SystemError,
-        SystemExit, TabError, TimeoutError, TypeError, UnboundLocalError, UnicodeError,
-        UnicodeWarning, UserWarning, ValueError, Warning, ZeroDivisionError]
+        ArithmeticError,
+        AssertionError,
+        AttributeError,
+        BaseException,
+        BlockingIOError,
+        BrokenPipeError,
+        BufferError,
+        BytesWarning,
+        ChildProcessError,
+        ConnectionAbortedError,
+        ConnectionError,
+        ConnectionRefusedError,
+        ConnectionResetError,
+        DeprecationWarning,
+        EOFError,
+        EncodingWarning,
+        EnvironmentError,
+        Exception,
+        FileExistsError,
+        FileNotFoundError,
+        FloatingPointError,
+        FutureWarning,
+        GeneratorExit,
+        IOError,
+        ImportError,
+        ImportWarning,
+        IndentationError,
+        IndexError,
+        InterruptedError,
+        IsADirectoryError,
+        KeyError,
+        KeyboardInterrupt,
+        LookupError,
+        MemoryError,
+        ModuleNotFoundError,
+        NameError,
+        NotADirectoryError,
+        NotImplementedError,
+        OSError,
+        OverflowError,
+        PendingDeprecationWarning,
+        PermissionError,
+        ProcessLookupError,
+        RecursionError,
+        ReferenceError,
+        ResourceWarning,
+        RuntimeError,
+        RuntimeWarning,
+        StopAsyncIteration,
+        StopIteration,
+        SyntaxError,
+        SyntaxWarning,
+        SystemError,
+        SystemExit,
+        TabError,
+        TimeoutError,
+        TypeError,
+        UnboundLocalError,
+        UnicodeError,
+        UnicodeWarning,
+        UserWarning,
+        ValueError,
+        Warning,
+        ZeroDivisionError,
+    ]
 
     errors_and_exceptions_objects = []
     for error in errors_and_exceptions:
-        errors_and_exceptions_objects.append(error("Default"))
+        errors_and_exceptions_objects.append(error('Default'))
 
     # Handle special Exception/Error objects
     exception_group_obj = ExceptionGroup('Default', [Exception('Default1'), Exception('Default2')])
     not_implemented_obj = NotImplemented
-    python_finalization_error_obj = PythonFinalizationError('PythonFinalizationError') # works
+    python_finalization_error_obj = PythonFinalizationError('PythonFinalizationError')  # works
     unicode_decode_error_obj = UnicodeDecodeError('utf-8', b'\x80', 0, 1, 'utf-8')
     unicode_encode_error_obj = UnicodeEncodeError('utf-8', 'abc', 0, 1, 'utf-8')
     unicode_translate_error_obj = UnicodeTranslateError('abc', 0, 1, 'utf-8')
-    incomplete_input_error_obj = _IncompleteInputError('IncompleteInputError') # works
-    errors_and_exceptions_objects += [
-        exception_group_obj, not_implemented_obj, python_finalization_error_obj,
-        unicode_decode_error_obj, unicode_encode_error_obj, unicode_translate_error_obj,
-        incomplete_input_error_obj
-    ]
+    incomplete_input_error_obj = _IncompleteInputError('IncompleteInputError')  # works
+    errors_and_exceptions_objects += [exception_group_obj, not_implemented_obj, python_finalization_error_obj, unicode_decode_error_obj, unicode_encode_error_obj, unicode_translate_error_obj, incomplete_input_error_obj]
 
     # Create the rest of builtin types
     classmethod_obj = classmethod(lambda x: x)
     enumerate_obj = enumerate([1, 2, 3])
     filter_obj = filter(lambda x: x, [1, 2, 3])
-    frozenset_obj = frozenset([1, 2, 3])
     map_obj = map(lambda x: x, [1, 2, 3])
     property_obj = property(lambda x: x)
     reversed_obj = reversed([1, 2, 3])
@@ -530,14 +601,8 @@ def main():
     super_obj = super(TestObject, rand_obj)
     zip1_obj = zip([1, 2, 3], [4, 5, 6], strict=False)
     zip2_obj = zip([1, 2, 3], [4, 5, 6], strict=True)
-    ellipsis_obj = Ellipsis # same as ...
-    restof_builtin_type_objects = [
-        classmethod_obj, enumerate_obj,
-        filter_obj, frozenset_obj, map_obj,
-        property_obj, reversed_obj, staticmethod_obj,
-        super_obj, zip1_obj, zip2_obj,
-        ellipsis_obj
-    ]
+    ellipsis_obj = Ellipsis  # same as ...
+    restof_builtin_type_objects = [classmethod_obj, enumerate_obj, filter_obj, map_obj, property_obj, reversed_obj, staticmethod_obj, super_obj, zip1_obj, zip2_obj, ellipsis_obj]
 
     # Combine objects to hash
     things_to_hash = []

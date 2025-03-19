@@ -387,6 +387,7 @@ HASH_TYPES_AND_FUNCS = {
     bytes: python_hash_bytes,
     str: python_hash_string,
     float: python_hash_double,
+    type(None): python_hash_none,
     tuple: python_hash_tuple,
     range: python_hash_range,
     slice: python_hash_slice,
@@ -405,9 +406,6 @@ def python_hash(data: Any) -> int:
 
     does not properly handle all builtin types but handles most paradigms
     """
-    if data is None:
-        return python_hash_none(data)
-
     # unhashable types raise error
     if isinstance(data, (list, dict, set, bytearray)) or getattr(data, '__hash__', None) is None:
         raise TypeError(f'unhashable type: {type(data).__name__}')

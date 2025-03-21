@@ -403,8 +403,6 @@ def python_hash(data: Any) -> int:
     main function to hash data.
 
     does not respect object's __hash__ functions
-
-    does not properly handle all builtin types but handles most paradigms
     """
     # unhashable types raise error
     if isinstance(data, (list, dict, set, bytearray)) or getattr(data, '__hash__', None) is None:

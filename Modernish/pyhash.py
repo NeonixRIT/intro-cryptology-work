@@ -14,7 +14,7 @@ Attempt to fully implement Python's hash() function in Python
 
 # Python hash/config constants
 # Supposed to change based on system architechture
-CUTOFF = 0
+CUTOFF = 0  # defualt cutoff of 0 meaning djbx33a is never used
 SIZEOF_PY_HASH_T = 8 if maxsize.bit_length() > 32 else 4
 HASH_INF = 314159
 HASH_MULTIPLIER = 1000003  # 0xf4243 # 1000003
@@ -49,7 +49,7 @@ if SIZEOF_PY_HASH_T == 4:
     HASH_XXPRIME_5 = 374761393
 
 
-# Check if PYTHONHASHSEED is environment variable is set
+# Check if PYTHONHASHSEED environment variable is set
 # If not set: use random seed, if it is: ensure it is a valid integer and use it as seed
 HASH_SEED = environ.get('PYTHONHASHSEED', 'random').strip()
 if HASH_SEED != 'random':
@@ -59,7 +59,7 @@ if HASH_SEED != 'random':
         raise RuntimeError('Fatal Python error: config_init_hash_seed: PYTHONHASHSEED must be "random" or an integer in range [0; 4294967295]')
 
 
-# Function used to generate hash secret based on seed
+# Function used to generate hash secret based on given seed
 def lcg_urandom(x0, size) -> bytes:
     buffer = []
     x = x0 & 0xFFFFFFFF
@@ -69,7 +69,7 @@ def lcg_urandom(x0, size) -> bytes:
     return bytes(buffer)
 
 
-# true random function
+# true random function based on system
 def pyurandom(size: int) -> bytes:
     return SystemRandom().randbytes(size)
 
@@ -207,12 +207,10 @@ def siphash24(k0: int, k1: int, src: bytes) -> int:
 def python_hash_integer(data: int) -> int:
     """
     Python's hash function for integers.
-
-    0x1fffffffffffffff is the hex (base16) representation of 2 ** 61 - 1
     """
     if data < 0:
-        return -((-data) % 0x1FFFFFFFFFFFFFFF)
-    return _u64tos(data % 0x1FFFFFFFFFFFFFFF)
+        return -((-data) % HASH_MODULUS)
+    return _u64tos(data % HASH_MODULUS)
 
 
 def python_hash_boolean(data: bool) -> int:
@@ -426,6 +424,9 @@ def main():
     """
     from random import seed, sample, randint
     from pkgutil import iter_modules
+
+    if HASH_SEED == 'random':
+        raise RuntimeError('PYTHONHASHSEED is set to `random` meaning none of the hash values will match. Run again with `PYTHONHASHSEED` set to a specific integer in the range [0, 4294967295].')
 
     seed(HASH_SEED)
 
